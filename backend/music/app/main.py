@@ -3,7 +3,7 @@ import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from app.routers import search
+from app.routers import search, stream
 
 load_dotenv()
 
@@ -23,6 +23,7 @@ app.add_middleware(
 )
 
 app.include_router(search.router)
+app.include_router(stream.router)
 
 
 @app.get("/health")

@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Play, Volume2, AlertTriangle, Loader2 } from "lucide-react";
+import { Play, Volume2, AlertTriangle, Loader2, Music2, Radio, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { usePlayerStore } from "@/lib/stores/player-store";
 import { cn } from "@/lib/utils/cn";
 
@@ -40,9 +41,13 @@ export const YouTubePlayer = React.forwardRef<
 >(({ videoId, className, onReady, onStateChange, onError, onTrackEnded }, ref) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const playerRef = React.useRef<any>(null);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+
   const [isApiLoaded, setIsApiLoaded] = React.useState(false);
-  const [hasError, setHasError] = React.useState(false);
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [isAudioFallback, setIsAudioFallback] = React.useState(false);
+  const [audioFallbackUrl, setAudioFallbackUrl] = React.useState<string | null>(null);
+  const [isExtractingAudio, setIsExtractingAudio] = React.useState(false);
+  const [fallbackError, setFallbackError] = React.useState<string | null>(null);
 
   const {
     isAutoplayBlocked,
@@ -74,9 +79,35 @@ export const YouTubePlayer = React.forwardRef<
     };
   }, []);
 
+  // Function to switch to Audio-Only fallback stream
+  const switchToAudioFallback = React.useCallback(async (vid: string) => {
+    if (!vid) return;
+    setIsExtractingAudio(true);
+    setFallbackError(null);
+
+    try {
+      const res = await fetch(`/api/music/audio/${encodeURIComponent(vid)}`);
+      const data = await res.json();
+      if (!res.ok || !data.audioUrl) {
+        throw new Error(data.error || "Failed to extract audio fallback stream");
+      }
+
+      setAudioFallbackUrl(data.audioUrl);
+      setIsAudioFallback(true);
+      setIsReady(true);
+      setDuration(data.duration || 0);
+      onReady?.();
+    } catch (err: any) {
+      console.error("[YouTubePlayer] Audio fallback extraction failed:", err);
+      setFallbackError(err.message || "Audio stream unavailable");
+    } finally {
+      setIsExtractingAudio(false);
+    }
+  }, [onReady, setDuration, setIsReady]);
+
   // Initialize YT.Player instance once API is loaded
   React.useEffect(() => {
-    if (!isApiLoaded || !containerRef.current) return;
+    if (!isApiLoaded || !containerRef.current || isAudioFallback) return;
 
     const playerId = `yt-player-frame-${Math.random().toString(36).substring(2, 8)}`;
     const el = document.createElement("div");
@@ -84,263 +115,333 @@ export const YouTubePlayer = React.forwardRef<
     containerRef.current.innerHTML = "";
     containerRef.current.appendChild(el);
 
-    const player = new window.YT.Player(playerId, {
-      height: "100%",
-      width: "100%",
-      videoId: videoId || "",
-      playerVars: {
-        autoplay: 0,
-        controls: 1,
-        disablekb: 0,
-        enablejsapi: 1,
-        fs: 1,
-        modestbranding: 1,
-        playsinline: 1,
-        rel: 0,
-        origin: typeof window !== "undefined" ? window.location.origin : "",
-      },
-      events: {
-        onReady: (event: any) => {
-          playerRef.current = event.target;
-          playerRef.current.setVolume(isMuted ? 0 : volume);
-          setIsReady(true);
-          onReady?.();
+    try {
+      const player = new window.YT.Player(playerId, {
+        height: "100%",
+        width: "100%",
+        videoId: videoId || "",
+        playerVars: {
+          autoplay: 0,
+          controls: 1,
+          disablekb: 0,
+          enablejsapi: 1,
+          fs: 1,
+          modestbranding: 1,
+          playsinline: 1,
+          rel: 0,
+          origin: typeof window !== "undefined" ? window.location.origin : "",
         },
-        onStateChange: (event: any) => {
-          const stateCode = event.data;
-          // -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (video cued)
-          if (stateCode === 1) {
-            setPlayerState("playing");
-            setIsAutoplayBlocked(false);
-          } else if (stateCode === 2) {
-            setPlayerState("paused");
-          } else if (stateCode === 3) {
-            setPlayerState("buffering");
-          } else if (stateCode === 0) {
-            setPlayerState("ended");
-            onTrackEnded?.();
-          } else if (stateCode === 5) {
-            setPlayerState("cued");
-          }
-          onStateChange?.(stateCode);
+        events: {
+          onReady: (event: any) => {
+            playerRef.current = event.target;
+            playerRef.current.setVolume(isMuted ? 0 : volume);
+            setIsReady(true);
+            onReady?.();
+          },
+          onStateChange: (event: any) => {
+            const stateCode = event.data;
+            // -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (video cued)
+            if (stateCode === 1) {
+              setPlayerState("playing");
+              setIsAutoplayBlocked(false);
+            } else if (stateCode === 2) {
+              setPlayerState("paused");
+            } else if (stateCode === 3) {
+              setPlayerState("buffering");
+            } else if (stateCode === 0) {
+              setPlayerState("ended");
+              onTrackEnded?.();
+            } else if (stateCode === 5) {
+              setPlayerState("cued");
+            }
+            onStateChange?.(stateCode);
+          },
+          onError: (event: any) => {
+            console.warn("[YouTubePlayer] Embed playback unavailable (Error code:", event.data, "). Falling back to audio-only stream.");
+            if (videoId) {
+              switchToAudioFallback(videoId);
+            }
+            onError?.(event);
+          },
         },
-        onError: (event: any) => {
-          console.error("[YouTubePlayer] Player error code:", event.data);
-          setHasError(true);
-          let msg = "An error occurred with the YouTube player.";
-          if (event.data === 101 || event.data === 150) {
-            msg = "This video is not embeddable or restricted by YouTube.";
-          } else if (event.data === 100) {
-            msg = "Video was not found or has been deleted.";
-          }
-          setErrorMessage(msg);
-          onError?.(event);
-        },
-      },
-    });
-
-    return () => {
-      try {
-        if (player && typeof player.destroy === "function") {
-          player.destroy();
-        }
-      } catch (e) {
-        // Ignore destroy error
-      }
-    };
-  }, [isApiLoaded]);
-
-  // Sync volume changes
-  React.useEffect(() => {
-    if (playerRef.current && typeof playerRef.current.setVolume === "function") {
-      playerRef.current.setVolume(isMuted ? 0 : volume);
-    }
-  }, [volume, isMuted]);
-
-  // Load new videoId when changed
-  React.useEffect(() => {
-    if (videoId && playerRef.current) {
-      setHasError(false);
-      setErrorMessage(null);
-      try {
-        const currentVideoUrl = playerRef.current.getVideoUrl?.() || "";
-        if (!currentVideoUrl.includes(videoId)) {
-          playerRef.current.cueVideoById(videoId);
-        }
-      } catch (e) {
-        console.warn("[YouTubePlayer] Error cueing video:", e);
+      });
+    } catch (e) {
+      console.warn("[YouTubePlayer] Player init failed, falling back to audio:", e);
+      if (videoId) {
+        switchToAudioFallback(videoId);
       }
     }
+  }, [isApiLoaded, videoId, isAudioFallback, onReady, onStateChange, onError, onTrackEnded, switchToAudioFallback, setIsReady, setPlayerState, setIsAutoplayBlocked, volume, isMuted]);
+
+  // When videoId changes, reset fallback state if YouTube player is ready
+  React.useEffect(() => {
+    setIsAudioFallback(false);
+    setAudioFallbackUrl(null);
+    setFallbackError(null);
   }, [videoId]);
 
-  // Polling current playback time
-  React.useEffect(() => {
-    const interval = setInterval(() => {
-      if (playerRef.current && typeof playerRef.current.getCurrentTime === "function") {
-        try {
-          const t = playerRef.current.getCurrentTime();
-          const d = playerRef.current.getDuration();
-          if (typeof t === "number" && !isNaN(t)) {
-            setCurrentTime(t);
-          }
-          if (typeof d === "number" && !isNaN(d) && d > 0) {
-            setDuration(d);
-          }
-        } catch {
-          // Ignore polling error
-        }
-      }
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [setCurrentTime, setDuration]);
-
-  // Expose imperative API
+  // Forward ref methods supporting BOTH YouTube IFrame and HTML5 Audio fallback
   React.useImperativeHandle(
     ref,
     () => ({
       play: () => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.play().catch(() => setIsAutoplayBlocked(true));
+          return;
+        }
+
+        if (!playerRef.current) return;
         try {
-          if (playerRef.current && typeof playerRef.current.playVideo === "function") {
-            const playPromise = playerRef.current.playVideo();
-            if (playPromise && typeof playPromise.catch === "function") {
-              playPromise.catch(() => {
-                setIsAutoplayBlocked(true);
-              });
-            }
-          }
+          playerRef.current.playVideo();
         } catch (e) {
           setIsAutoplayBlocked(true);
         }
       },
       pause: () => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.pause();
+          return;
+        }
+
+        if (!playerRef.current) return;
         try {
-          if (playerRef.current && typeof playerRef.current.pauseVideo === "function") {
-            playerRef.current.pauseVideo();
-          }
-        } catch (e) {}
+          playerRef.current.pauseVideo();
+        } catch (e) {
+          console.error("[YouTubePlayer] Pause error:", e);
+        }
       },
       seekTo: (seconds: number, allowSeekAhead: boolean = true) => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.currentTime = seconds;
+          return;
+        }
+
+        if (!playerRef.current) return;
         try {
-          if (playerRef.current && typeof playerRef.current.seekTo === "function") {
-            playerRef.current.seekTo(seconds, allowSeekAhead);
-          }
-        } catch (e) {}
+          playerRef.current.seekTo(seconds, allowSeekAhead);
+        } catch (e) {
+          console.error("[YouTubePlayer] Seek error:", e);
+        }
       },
       getCurrentTime: () => {
+        if (isAudioFallback && audioRef.current) {
+          return audioRef.current.currentTime || 0;
+        }
+
+        if (!playerRef.current || typeof playerRef.current.getCurrentTime !== "function") {
+          return 0;
+        }
         try {
-          return playerRef.current?.getCurrentTime?.() || 0;
+          return playerRef.current.getCurrentTime() || 0;
         } catch {
           return 0;
         }
       },
       getDuration: () => {
+        if (isAudioFallback && audioRef.current) {
+          return audioRef.current.duration || 0;
+        }
+
+        if (!playerRef.current || typeof playerRef.current.getDuration !== "function") {
+          return 0;
+        }
         try {
-          return playerRef.current?.getDuration?.() || 0;
+          return playerRef.current.getDuration() || 0;
         } catch {
           return 0;
         }
       },
       getPlayerState: () => {
+        if (isAudioFallback && audioRef.current) {
+          if (audioRef.current.ended) return 0;
+          if (audioRef.current.paused) return 2;
+          return 1;
+        }
+
+        if (!playerRef.current || typeof playerRef.current.getPlayerState !== "function") {
+          return -1;
+        }
         try {
-          return playerRef.current?.getPlayerState?.() || -1;
+          return playerRef.current.getPlayerState();
         } catch {
           return -1;
         }
       },
       loadVideo: (vid: string, startSeconds: number = 0) => {
+        if (isAudioFallback) {
+          switchToAudioFallback(vid);
+          return;
+        }
+
+        if (!playerRef.current) return;
         try {
-          playerRef.current?.loadVideoById?.({
+          playerRef.current.loadVideoById({
             videoId: vid,
             startSeconds,
           });
-        } catch (e) {}
+        } catch {
+          switchToAudioFallback(vid);
+        }
       },
       cueVideo: (vid: string, startSeconds: number = 0) => {
+        if (isAudioFallback) {
+          switchToAudioFallback(vid);
+          return;
+        }
+
+        if (!playerRef.current) return;
         try {
-          playerRef.current?.cueVideoById?.({
+          playerRef.current.cueVideoById({
             videoId: vid,
             startSeconds,
           });
-        } catch (e) {}
+        } catch {
+          switchToAudioFallback(vid);
+        }
       },
-      setVolume: (v: number) => {
+      setVolume: (vol: number) => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.volume = Math.max(0, Math.min(1, vol / 100));
+          return;
+        }
+
+        if (!playerRef.current) return;
         try {
-          playerRef.current?.setVolume?.(v);
-        } catch (e) {}
+          playerRef.current.setVolume(vol);
+        } catch (e) {
+          console.error("[YouTubePlayer] Volume error:", e);
+        }
       },
     }),
-    [setIsAutoplayBlocked]
+    [isAudioFallback, setIsAutoplayBlocked, switchToAudioFallback]
   );
 
-  const handleUserGestureStart = () => {
+  const handleStartAudioGesture = () => {
     setIsAutoplayBlocked(false);
-    try {
-      playerRef.current?.playVideo();
-    } catch (e) {}
+    if (isAudioFallback && audioRef.current) {
+      audioRef.current.play().catch(console.error);
+    } else if (playerRef.current) {
+      playerRef.current.playVideo();
+    }
   };
 
   return (
     <div
       className={cn(
-        "relative aspect-video w-full overflow-hidden rounded-lg border border-[#262626] bg-[#0c0c0c] shadow-lg",
+        "relative w-full aspect-video rounded-lg overflow-hidden border border-[#262626] bg-[#0c0c0c] shadow-2xl",
         className
       )}
     >
-      {/* YouTube iframe container */}
-      <div ref={containerRef} className="h-full w-full" />
+      {/* 1. YouTube IFrame Target Container */}
+      {!isAudioFallback && (
+        <div ref={containerRef} className="w-full h-full" />
+      )}
 
-      {/* Autoplay Blocked User Gesture Prompt */}
-      {isAutoplayBlocked && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 p-4 text-center backdrop-blur-xs space-y-3">
-          <div className="h-12 w-12 rounded-full bg-[#1db954]/20 border border-[#1db954]/40 flex items-center justify-center text-[#1db954]">
-            <Play className="h-6 w-6 fill-current ml-0.5" />
+      {/* 2. Audio-Only Fallback Stream Interface */}
+      {isAudioFallback && audioFallbackUrl && (
+        <div className="flex flex-col items-center justify-center w-full h-full bg-gradient-to-br from-[#121212] via-[#0d0d0d] to-[#161616] p-6 text-center space-y-4">
+          <audio
+            ref={audioRef}
+            src={audioFallbackUrl}
+            onPlay={() => {
+              setPlayerState("playing");
+              setIsAutoplayBlocked(false);
+              onStateChange?.(1);
+            }}
+            onPause={() => {
+              setPlayerState("paused");
+              onStateChange?.(2);
+            }}
+            onEnded={() => {
+              setPlayerState("ended");
+              onStateChange?.(0);
+              onTrackEnded?.();
+            }}
+            onTimeUpdate={() => {
+              if (audioRef.current) {
+                setCurrentTime(audioRef.current.currentTime);
+                setDuration(audioRef.current.duration || 0);
+              }
+            }}
+          />
+
+          <div className="relative flex items-center justify-center h-20 w-20 rounded-full bg-[#1db954]/10 border border-[#1db954]/30 text-[#1db954] shadow-lg shadow-[#1db954]/10 animate-pulse">
+            <Radio className="h-9 w-9" />
           </div>
+
           <div className="space-y-1">
-            <h4 className="text-sm font-bold text-[#fafafa]">
-              Browser Autoplay Blocked
+            <div className="flex items-center justify-center gap-2">
+              <Badge variant="accent" className="text-[10px] gap-1 px-2 py-0.5">
+                <Sparkles className="h-3 w-3" /> Audio-Only Fallback
+              </Badge>
+            </div>
+            <p className="text-xs text-[#a1a1a1]">
+              Video embed restricted by YouTube. Audio is streaming in high quality.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Audio Extraction Loading State */}
+      {isExtractingAudio && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0d0d0d]/90 backdrop-blur-sm z-30 space-y-2">
+          <Loader2 className="h-7 w-7 animate-spin text-[#1db954]" />
+          <span className="text-xs text-[#fafafa] font-medium">
+            Switching to audio fallback stream...
+          </span>
+        </div>
+      )}
+
+      {/* 4. Fatal Error State (if both YouTube and Audio fallback fail) */}
+      {fallbackError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-[#141414] text-center space-y-3 z-30">
+          <AlertTriangle className="h-8 w-8 text-[#e5484d]" />
+          <div className="space-y-1">
+            <h4 className="text-xs font-semibold text-[#fafafa]">
+              Playback Unavailable
             </h4>
-            <p className="text-xs text-[#a1a1a1] max-w-xs">
-              Click below to allow browser audio and sync with the room.
+            <p className="text-[11px] text-[#a1a1a1] max-w-xs">{fallbackError}</p>
+          </div>
+          {videoId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => switchToAudioFallback(videoId)}
+              className="text-xs"
+            >
+              Retry Audio Stream
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* 5. Autoplay Blocked Tap-to-Start User Gesture Overlay */}
+      {isAutoplayBlocked && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#0a0a0a]/95 backdrop-blur-md p-6 text-center space-y-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#1db954]/20 border border-[#1db954]/40 text-[#1db954]">
+            <Volume2 className="h-7 w-7" />
+          </div>
+          <div className="space-y-1.5 max-w-sm">
+            <h3 className="text-sm font-bold text-[#fafafa]">
+              Audio Playback Ready
+            </h3>
+            <p className="text-xs text-[#a1a1a1]">
+              Your browser paused playback to prevent surprise audio. Tap below to join synchronized audio.
             </p>
           </div>
           <Button
             variant="primary"
-            size="sm"
-            onClick={handleUserGestureStart}
-            className="gap-2"
+            size="lg"
+            onClick={handleStartAudioGesture}
+            className="gap-2 shadow-lg shadow-[#1db954]/20"
           >
-            <Play className="h-3.5 w-3.5 fill-current" />
+            <Play className="h-4 w-4 fill-current" />
             <span>Start Synced Audio</span>
           </Button>
-        </div>
-      )}
-
-      {/* Track Error / Unavailable State */}
-      {hasError && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/90 p-4 text-center space-y-2">
-          <AlertTriangle className="h-8 w-8 text-[#e5484d]" />
-          <h4 className="text-sm font-semibold text-[#fafafa]">
-            Playback Unavailable
-          </h4>
-          <p className="text-xs text-[#a1a1a1] max-w-sm">
-            {errorMessage || "The track could not be played. The master can pick another song."}
-          </p>
-        </div>
-      )}
-
-      {/* No Video Cued State */}
-      {!videoId && !hasError && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#0d0d0d] p-4 text-center space-y-2">
-          <div className="h-10 w-10 rounded-full bg-[#181818] border border-[#262626] flex items-center justify-center text-[#666666]">
-            <Play className="h-5 w-5 fill-current ml-0.5" />
-          </div>
-          <p className="text-xs text-[#666666]">
-            No track currently playing
-          </p>
         </div>
       )}
     </div>
   );
 });
+
 YouTubePlayer.displayName = "YouTubePlayer";
