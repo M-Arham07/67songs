@@ -287,12 +287,11 @@ export const YouTubePlayer = React.forwardRef<
 
         if (!playerRef.current) return;
         try {
-          playerRef.current.loadVideoById({
-            videoId: vid,
-            startSeconds,
-          });
-        } catch {
-          switchToAudioFallback(vid);
+          if (typeof playerRef.current.loadVideoById === "function") {
+            playerRef.current.loadVideoById(vid, startSeconds);
+          }
+        } catch (e) {
+          console.warn("[YouTubePlayer] loadVideo error:", e);
         }
       },
       cueVideo: (vid: string, startSeconds: number = 0) => {
@@ -303,12 +302,11 @@ export const YouTubePlayer = React.forwardRef<
 
         if (!playerRef.current) return;
         try {
-          playerRef.current.cueVideoById({
-            videoId: vid,
-            startSeconds,
-          });
-        } catch {
-          switchToAudioFallback(vid);
+          if (typeof playerRef.current.cueVideoById === "function") {
+            playerRef.current.cueVideoById(vid, startSeconds);
+          }
+        } catch (e) {
+          console.warn("[YouTubePlayer] cueVideo error:", e);
         }
       },
       setVolume: (vol: number) => {
