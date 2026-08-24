@@ -31,10 +31,11 @@ export async function POST(
     let role: "master" | "co-host" | "member" | "guest" = "guest";
     let isMaster = false;
 
-    const masterToken = body?.masterToken;
-    const isMasterAuth =
+    const masterToken = typeof body?.masterToken === "string" && body.masterToken.trim() ? body.masterToken.trim() : null;
+    const isMasterAuth = Boolean(
       (session?.user?.id && room.masterUserId.toString() === session.user.id) ||
-      (masterToken && room.masterToken && masterToken === room.masterToken);
+      (masterToken && room.masterToken && masterToken === room.masterToken)
+    );
 
     if (isMasterAuth) {
       userId = room.masterUserId.toString();

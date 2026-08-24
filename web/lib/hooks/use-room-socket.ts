@@ -170,7 +170,12 @@ export function useRoomSocket(
     socket.on("host_transferred", ({ newMasterId }: any) => {
       setMasterId(newMasterId);
       setHostGrace(false);
-      toast.success("👑 Master playback control was transferred!");
+      const isMe = useRoomStore.getState().currentUserId === newMasterId;
+      useRoomStore.setState({
+        isMaster: isMe,
+        currentUserRole: isMe ? "master" : "member",
+      });
+      toast.success(isMe ? "👑 You are now the Master Device!" : "👑 Master playback control was transferred!");
     });
 
     socket.on("host_grace_started", ({ gracePeriodMs }: any) => {

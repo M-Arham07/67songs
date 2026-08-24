@@ -101,21 +101,17 @@ export const useRoomStore = create<RoomStoreState>((set, get) => ({
   hostGraceExpiresAt: null,
 
   setRoomState: (data) => {
-    // Trust JWT isMasterClaim if provided; fall back to ID comparison or role check
-    const isMaster =
-      data.isMasterClaim === true ||
-      data.currentUserRole === "master" ||
-      data.currentUserId === data.masterId;
-    const isCoHost = data.currentUserRole === "co-host";
-
-    // If we are master, update store masterId to our userId so future comparisons work
-    const resolvedMasterId = isMaster ? data.currentUserId : data.masterId;
+    // ONLY trust the explicit isMasterClaim from the server JWT.
+    // Never derive from role strings or ID comparison — those are unreliable across sessions.
+    const isMaster = data.isMasterClaim === true;
+    const isCoHost = data.currentUserRole === "co-host" && !isMaster;
 
     set((prev) => ({
       roomId: data.roomId,
       roomCode: data.roomCode,
       title: data.settings?.title ?? prev.title ?? "Synchronized Jam",
-      masterId: resolvedMasterId,
+      // masterId comes from the server's authoritative room state, never from the client
+      masterId: data.masterId,
       currentUserId: data.currentUserId,
       currentUserRole: isMaster ? "master" : data.currentUserRole,
       isMaster,

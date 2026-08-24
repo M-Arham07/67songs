@@ -18,7 +18,7 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
       room = roomStateManager.createRoom(
         roomId,
         socket.data.roomCode || "----",
-        socket.data.isMaster ? userId : "pending",
+        socket.data.isMaster ? userId : "unassigned",
         {
           title: socket.data.title || "Synchronized Jam",
           visibility: "unlisted",
@@ -41,13 +41,13 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
       );
     }
 
-    // If socket has Master authority, assert masterId
-    if (socket.data.isMaster || room.masterId === "pending") {
+    // Only a socket with verified isMaster JWT claim can claim Master authority
+    if (socket.data.isMaster) {
       room.masterId = userId;
     }
 
     // Clear any active host grace period if master reconnected
-    if (userId === room.masterId && graceTimers.has(roomId)) {
+    if (socket.data.isMaster && graceTimers.has(roomId)) {
       clearTimeout(graceTimers.get(roomId)!);
       graceTimers.delete(roomId);
       room.hostGraceExpiresAt = null;
@@ -57,13 +57,15 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
       });
     }
 
-    const isMemberMaster = userId === room.masterId || socket.data.isMaster;
+    const isMemberMaster = Boolean(socket.data.isMaster);
+    const memberRole = isMemberMaster ? "master" : (role === "master" ? "guest" : role || "guest");
+
     const member: ActiveMember = {
       id: userId,
       socketId: socket.id,
       name,
       avatarUrl: avatarUrl || null,
-      role: isMemberMaster ? "master" : role,
+      role: memberRole,
       isMaster: isMemberMaster,
       isCoHost: room.coHostIds.includes(userId),
       isMuted: false,
@@ -76,7 +78,7 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
     room.members[userId] = member;
     socket.join(roomId);
 
-    console.log(`[Room] ${name} (${userId}) joined room ${roomId} as ${member.role}`);
+    console.log(`[Room] ${name} (${userId}) joined room ${roomId} as ${member.role} (isMaster=${isMemberMaster})`);
 
     // Broadcast member joined to other sockets
     socket.to(roomId).emit("member_joined", member);
