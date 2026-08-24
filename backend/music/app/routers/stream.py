@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api", tags=["stream"])
 executor = ThreadPoolExecutor(max_workers=4)
 
 YDL_OPTS = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,

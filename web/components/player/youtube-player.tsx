@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Play, Volume2, AlertTriangle, Loader2 } from "lucide-react";
+import { Play, Volume2, AlertTriangle, Loader2, Radio, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { usePlayerStore } from "@/lib/stores/player-store";
 import { cn } from "@/lib/utils/cn";
 
@@ -40,9 +41,12 @@ export const YouTubePlayer = React.forwardRef<
 >(({ videoId, className, onReady, onStateChange, onError, onTrackEnded }, ref) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const playerRef = React.useRef<any>(null);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const isPlayerReadyRef = React.useRef(false);
 
   const [isApiLoaded, setIsApiLoaded] = React.useState(false);
+  const [isAudioFallback, setIsAudioFallback] = React.useState(false);
+  const [audioFallbackUrl, setAudioFallbackUrl] = React.useState<string | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   const {
@@ -74,6 +78,16 @@ export const YouTubePlayer = React.forwardRef<
       setIsApiLoaded(true);
     };
   }, []);
+
+  // Function to switch to Audio-Only fallback stream
+  const switchToAudioFallback = React.useCallback((vid: string) => {
+    if (!vid) return;
+    setErrorMessage(null);
+    setAudioFallbackUrl(`/api/music/audio/${encodeURIComponent(vid)}`);
+    setIsAudioFallback(true);
+    setIsReady(true);
+    onReady?.();
+  }, [onReady, setIsReady]);
 
   // Initialize YT.Player instance ONCE when API is loaded
   React.useEffect(() => {
@@ -131,11 +145,9 @@ export const YouTubePlayer = React.forwardRef<
             onStateChange?.(stateCode);
           },
           onError: (event: any) => {
-            console.warn("[YouTubePlayer] Player error code:", event.data);
-            if (event.data === 101 || event.data === 150) {
-              setErrorMessage("This track is restricted by the content owner on YouTube.");
-            } else if (event.data === 100) {
-              setErrorMessage("Track not found or removed on YouTube.");
+            console.warn("[YouTubePlayer] Embed restricted (Code:", event.data, "). Switching to high-quality audio stream.");
+            if (videoId) {
+              switchToAudioFallback(videoId);
             }
             onError?.(event);
           },
@@ -144,27 +156,36 @@ export const YouTubePlayer = React.forwardRef<
     } catch (e) {
       console.warn("[YouTubePlayer] Init note:", e);
     }
-  }, [isApiLoaded]);
+  }, [isApiLoaded, videoId, switchToAudioFallback, onReady, onStateChange, onError, onTrackEnded, setIsReady, setPlayerState, setIsAutoplayBlocked, volume, isMuted]);
 
   // When videoId changes, update the existing persistent player smoothly
   React.useEffect(() => {
-    if (!videoId || !playerRef.current || !isPlayerReadyRef.current) return;
+    if (!videoId) return;
     setErrorMessage(null);
+    setIsAudioFallback(false);
+    setAudioFallbackUrl(null);
 
-    try {
-      if (typeof playerRef.current.cueVideoById === "function") {
-        playerRef.current.cueVideoById(videoId);
+    if (playerRef.current && isPlayerReadyRef.current) {
+      try {
+        if (typeof playerRef.current.cueVideoById === "function") {
+          playerRef.current.cueVideoById(videoId);
+        }
+      } catch (e) {
+        console.warn("[YouTubePlayer] Cue video error:", e);
       }
-    } catch (e) {
-      console.warn("[YouTubePlayer] Cue video error:", e);
     }
   }, [videoId]);
 
-  // Forward ref methods calling official YouTube IFrame methods
+  // Forward ref methods supporting BOTH YouTube IFrame and Audio fallback
   React.useImperativeHandle(
     ref,
     () => ({
       play: () => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.play().catch(() => setIsAutoplayBlocked(true));
+          return;
+        }
+
         if (!playerRef.current) return;
         try {
           if (typeof playerRef.current.playVideo === "function") {
@@ -175,6 +196,11 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       pause: () => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.pause();
+          return;
+        }
+
         if (!playerRef.current) return;
         try {
           if (typeof playerRef.current.pauseVideo === "function") {
@@ -185,6 +211,11 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       seekTo: (seconds: number, allowSeekAhead: boolean = true) => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.currentTime = seconds;
+          return;
+        }
+
         if (!playerRef.current) return;
         try {
           if (typeof playerRef.current.seekTo === "function") {
@@ -195,6 +226,10 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       getCurrentTime: () => {
+        if (isAudioFallback && audioRef.current) {
+          return audioRef.current.currentTime || 0;
+        }
+
         if (!playerRef.current || typeof playerRef.current.getCurrentTime !== "function") {
           return 0;
         }
@@ -205,6 +240,10 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       getDuration: () => {
+        if (isAudioFallback && audioRef.current) {
+          return audioRef.current.duration || 0;
+        }
+
         if (!playerRef.current || typeof playerRef.current.getDuration !== "function") {
           return 0;
         }
@@ -215,6 +254,12 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       getPlayerState: () => {
+        if (isAudioFallback && audioRef.current) {
+          if (audioRef.current.ended) return 0;
+          if (audioRef.current.paused) return 2;
+          return 1;
+        }
+
         if (!playerRef.current || typeof playerRef.current.getPlayerState !== "function") {
           return -1;
         }
@@ -225,6 +270,11 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       loadVideo: (vid: string, startSeconds: number = 0) => {
+        if (isAudioFallback) {
+          switchToAudioFallback(vid);
+          return;
+        }
+
         if (!playerRef.current) return;
         try {
           if (typeof playerRef.current.loadVideoById === "function") {
@@ -235,6 +285,11 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       cueVideo: (vid: string, startSeconds: number = 0) => {
+        if (isAudioFallback) {
+          switchToAudioFallback(vid);
+          return;
+        }
+
         if (!playerRef.current) return;
         try {
           if (typeof playerRef.current.cueVideoById === "function") {
@@ -245,6 +300,11 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
       setVolume: (vol: number) => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.volume = Math.max(0, Math.min(1, vol / 100));
+          return;
+        }
+
         if (!playerRef.current) return;
         try {
           if (typeof playerRef.current.setVolume === "function") {
@@ -255,12 +315,14 @@ export const YouTubePlayer = React.forwardRef<
         }
       },
     }),
-    [setIsAutoplayBlocked]
+    [isAudioFallback, setIsAutoplayBlocked, switchToAudioFallback]
   );
 
   const handleStartAudioGesture = () => {
     setIsAutoplayBlocked(false);
-    if (playerRef.current && typeof playerRef.current.playVideo === "function") {
+    if (isAudioFallback && audioRef.current) {
+      audioRef.current.play().catch(console.error);
+    } else if (playerRef.current && typeof playerRef.current.playVideo === "function") {
       playerRef.current.playVideo();
     }
   };
@@ -272,23 +334,58 @@ export const YouTubePlayer = React.forwardRef<
         className
       )}
     >
-      {/* Persistent YouTube IFrame Container */}
-      <div ref={containerRef} className="w-full h-full" />
+      {/* 1. Persistent YouTube IFrame Container */}
+      {!isAudioFallback && (
+        <div ref={containerRef} className="w-full h-full" />
+      )}
 
-      {/* Track Error Banner if embed restricted */}
-      {errorMessage && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-[#141414]/95 text-center space-y-3 z-30">
-          <AlertTriangle className="h-8 w-8 text-amber-400" />
+      {/* 2. Audio-Only Fallback Stream Interface (when embed restricted on LAN IP) */}
+      {isAudioFallback && audioFallbackUrl && (
+        <div className="flex flex-col items-center justify-center w-full h-full bg-gradient-to-br from-[#121212] via-[#0d0d0d] to-[#161616] p-6 text-center space-y-3">
+          <audio
+            ref={audioRef}
+            src={audioFallbackUrl}
+            preload="auto"
+            onPlay={() => {
+              setPlayerState("playing");
+              setIsAutoplayBlocked(false);
+              onStateChange?.(1);
+            }}
+            onPause={() => {
+              setPlayerState("paused");
+              onStateChange?.(2);
+            }}
+            onEnded={() => {
+              setPlayerState("ended");
+              onStateChange?.(0);
+              onTrackEnded?.();
+            }}
+            onTimeUpdate={() => {
+              if (audioRef.current) {
+                setCurrentTime(audioRef.current.currentTime);
+                setDuration(audioRef.current.duration || 0);
+              }
+            }}
+          />
+
+          <div className="relative flex items-center justify-center h-16 w-16 rounded-full bg-[#1db954]/10 border border-[#1db954]/30 text-[#1db954] shadow-lg shadow-[#1db954]/10 animate-pulse">
+            <Radio className="h-8 w-8" />
+          </div>
+
           <div className="space-y-1">
-            <h4 className="text-xs font-semibold text-[#fafafa]">
-              Playback Notice
-            </h4>
-            <p className="text-[11px] text-[#a1a1a1] max-w-xs">{errorMessage}</p>
+            <div className="flex items-center justify-center gap-2">
+              <Badge variant="accent" className="text-[10px] gap-1 px-2 py-0.5">
+                <Sparkles className="h-3 w-3" /> Direct Audio Stream
+              </Badge>
+            </div>
+            <p className="text-xs text-[#a1a1a1]">
+              Streaming high-quality synchronized audio on network.
+            </p>
           </div>
         </div>
       )}
 
-      {/* Autoplay Blocked Tap-to-Start User Gesture Overlay */}
+      {/* 3. Autoplay Blocked Tap-to-Start User Gesture Overlay */}
       {isAutoplayBlocked && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#0a0a0a]/95 backdrop-blur-md p-6 text-center space-y-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#1db954]/20 border border-[#1db954]/40 text-[#1db954]">
@@ -299,7 +396,7 @@ export const YouTubePlayer = React.forwardRef<
               Audio Playback Ready
             </h3>
             <p className="text-xs text-[#a1a1a1]">
-              Your browser paused playback to prevent surprise audio. Tap below to join synchronized audio.
+              Tap below to join the synchronized audio stream.
             </p>
           </div>
           <Button
