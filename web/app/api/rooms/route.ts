@@ -38,6 +38,34 @@ export async function POST(req: Request) {
 
     const data = parsed.data;
 
+    // Pre-flight check: Verify Realtime WebSocket server is reachable and healthy
+    const socketServerUrl = process.env.SOCKET_SERVER_URL || "http://localhost:4000";
+    try {
+      const healthRes = await fetch(`${socketServerUrl}/health`, {
+        method: "GET",
+        signal: AbortSignal.timeout(2500),
+      });
+
+      if (!healthRes.ok) {
+        return NextResponse.json(
+          {
+            error: "Realtime synchronization service is unhealthy. Room creation aborted.",
+            code: "REALTIME_SERVICE_UNHEALTHY",
+          },
+          { status: 503 }
+        );
+      }
+    } catch (healthErr: any) {
+      console.warn("[Room Creation] Realtime health check failed:", healthErr.message);
+      return NextResponse.json(
+        {
+          error: "Realtime WebSocket service is currently offline or unreachable. Room creation aborted.",
+          code: "REALTIME_SERVICE_OFFLINE",
+        },
+        { status: 503 }
+      );
+    }
+
     // Generate unique 4-character code
     let code = generateRoomCode(4);
     let codeExists = await Room.findOne({ code, status: "active" });
