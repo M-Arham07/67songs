@@ -72,8 +72,8 @@ io.on("connection", (rawSocket) => {
   registerChatHandlers(io, socket);
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `[67Songs Realtime] Authoritative Socket.IO server running on port ${PORT} (Single-replica)`
+    `[67Songs Realtime] Authoritative Socket.IO server running on port ${PORT} (0.0.0.0, Single-replica)`
   );
 });

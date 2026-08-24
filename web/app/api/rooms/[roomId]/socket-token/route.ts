@@ -88,7 +88,16 @@ export async function POST(
       isMaster,
     });
 
-    const socketServerUrl = process.env.SOCKET_SERVER_URL || "http://localhost:4000";
+    // Resolve socket server URL:
+    // If client connects from a phone/device on the local network (e.g. 192.168.x.y), dynamically use that IP so the device connects to the host machine instead of trying localhost on itself.
+    const hostHeader = req.headers.get("host") || "localhost:3000";
+    const hostname = hostHeader.split(":")[0];
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+
+    let socketServerUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || process.env.SOCKET_SERVER_URL || `http://${hostname}:4000`;
+    if (socketServerUrl.includes("localhost") && hostname !== "localhost" && hostname !== "127.0.0.1") {
+      socketServerUrl = `${protocol}://${hostname}:4000`;
+    }
 
     return NextResponse.json({
       success: true,

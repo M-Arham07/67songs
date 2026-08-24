@@ -94,6 +94,12 @@ export function useRoomSocket(
       setSyncStatus("idle");
     });
 
+    socket.on("connect_error", (err) => {
+      console.warn("[Socket] Connection error:", err.message);
+      setIsConnected(false);
+      setSyncStatus("idle");
+    });
+
     // Room & presence events
     socket.on("member_joined", (member: any) => {
       addMember(member);
