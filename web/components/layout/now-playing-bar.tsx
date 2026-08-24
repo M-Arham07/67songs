@@ -16,11 +16,13 @@ import {
   Music2,
   Lock,
   Crown,
+  Sliders,
 } from "lucide-react";
 import { useRoomStore } from "@/lib/stores/room-store";
 import { usePlayerStore } from "@/lib/stores/player-store";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { AudioAdjusterDialog } from "@/components/player/audio-adjuster";
 import { cn } from "@/lib/utils/cn";
 
 function formatSeconds(seconds: number): string {
@@ -59,6 +61,8 @@ export function NowPlayingBar({ onPlayToggle, onSkip, onSeek }: NowPlayingBarPro
     setVolume,
     setIsMuted,
   } = usePlayerStore();
+
+  const [isAdjusterOpen, setIsAdjusterOpen] = React.useState(false);
 
   // Find master name
   const masterMember = masterId ? members[masterId] : null;
@@ -268,14 +272,15 @@ export function NowPlayingBar({ onPlayToggle, onSkip, onSeek }: NowPlayingBarPro
           </Tooltip>
         </TooltipProvider>
 
-        {/* Volume Slider */}
-        <div className="flex items-center gap-1.5 text-[#a1a1a1]">
+        {/* Volume & Audio Adjuster */}
+        <div className="flex items-center gap-2 text-[#a1a1a1]">
           <button
             onClick={toggleMute}
             className="hover:text-[#fafafa] p-1 cursor-pointer transition-colors"
+            title={isMuted ? "Unmute" : "Mute"}
           >
             {isMuted || volume === 0 ? (
-              <VolumeX className="h-4 w-4" />
+              <VolumeX className="h-4 w-4 text-[#e5484d]" />
             ) : volume < 50 ? (
               <Volume1 className="h-4 w-4" />
             ) : (
@@ -286,12 +291,27 @@ export function NowPlayingBar({ onPlayToggle, onSkip, onSeek }: NowPlayingBarPro
             type="range"
             min="0"
             max="100"
+            step="1"
             value={isMuted ? 0 : volume}
             onChange={handleVolumeChange}
-            className="w-16 h-1 bg-[#262626] rounded-lg appearance-none cursor-pointer accent-[#fafafa]"
+            className="w-16 sm:w-24 h-1 bg-[#262626] rounded-lg appearance-none cursor-pointer accent-[#1db954]"
+            title={`Volume: ${volume}%`}
           />
+
+          <button
+            onClick={() => setIsAdjusterOpen(true)}
+            className="p-1 hover:text-[#fafafa] transition-colors rounded hover:bg-[#1f1f1f] text-[#a1a1a1] cursor-pointer"
+            title="Audio & Sync Calibration Adjuster"
+          >
+            <Sliders className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
+
+      <AudioAdjusterDialog
+        isOpen={isAdjusterOpen}
+        onOpenChange={setIsAdjusterOpen}
+      />
     </div>
   );
 }

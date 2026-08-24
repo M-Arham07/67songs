@@ -9,9 +9,11 @@ import {
   Radio,
   Sparkles,
   Crown,
+  Sliders,
 } from "lucide-react";
 import { YouTubePlayer } from "@/components/player/youtube-player";
 import { PlayerSyncStatus } from "@/components/player/player-sync-status";
+import { AudioAdjusterDialog } from "@/components/player/audio-adjuster";
 import { RoomHeader } from "@/components/room/room-header";
 import { RoomLobby } from "@/components/room/room-lobby";
 import { QueuePanel } from "@/components/queue/queue-panel";
@@ -70,6 +72,7 @@ export function ActiveRoom({
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const [isTransferMasterOpen, setIsTransferMasterOpen] = React.useState(false);
+  const [isAdjusterOpen, setIsAdjusterOpen] = React.useState(false);
   const [activeSideTab, setActiveSideTab] = React.useState<"queue" | "members" | "chat">("queue");
 
   const handleTrackEnded = () => {
@@ -122,9 +125,21 @@ export function ActiveRoom({
 
               <div className="flex items-center gap-2 shrink-0">
                 <PlayerSyncStatus />
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAdjusterOpen(true)}
+                  className="h-8 text-xs gap-1.5"
+                  title="Adjust sound volume and sync offset"
+                >
+                  <Sliders className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Audio Adjuster</span>
+                </Button>
+
                 {isMaster && (
                   <Button
-                    variant="outline"
+                    variant="primary"
                     size="sm"
                     onClick={() => setIsSearchOpen(true)}
                     className="h-8 text-xs gap-1.5"
@@ -227,6 +242,15 @@ export function ActiveRoom({
         isOpen={isTransferMasterOpen}
         onOpenChange={setIsTransferMasterOpen}
         onTransferConfirm={onTransferMaster}
+      />
+
+      <AudioAdjusterDialog
+        isOpen={isAdjusterOpen}
+        onOpenChange={setIsAdjusterOpen}
+        onReSync={() => {
+          const syncBtn = document.querySelector('[data-gesture="start-audio"]') as HTMLButtonElement;
+          if (syncBtn) syncBtn.click();
+        }}
       />
     </div>
   );
