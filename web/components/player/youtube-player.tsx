@@ -180,6 +180,35 @@ export const YouTubePlayer = React.forwardRef<
     setFallbackError(null);
   }, [videoId]);
 
+  // Mobile Autoplay Block Detection:
+  // Mobile browsers (iOS Safari, Android Chrome) block programmatic audio playback.
+  // Detect if player is in unstarted (-1) or paused (2) state and show Tap to Start overlay.
+  React.useEffect(() => {
+    if (!videoId) return;
+
+    const timer = setTimeout(() => {
+      if (isAudioFallback && audioRef.current) {
+        if (audioRef.current.paused) {
+          setIsAutoplayBlocked(true);
+        }
+        return;
+      }
+
+      if (playerRef.current && typeof playerRef.current.getPlayerState === "function") {
+        try {
+          const state = playerRef.current.getPlayerState();
+          if (state === -1 || state === 2 || state === 5) {
+            setIsAutoplayBlocked(true);
+          }
+        } catch {
+          setIsAutoplayBlocked(true);
+        }
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [videoId, isAudioFallback, setIsAutoplayBlocked]);
+
   // Forward ref methods supporting BOTH YouTube IFrame and HTML5 Audio fallback
   React.useImperativeHandle(
     ref,
@@ -432,6 +461,7 @@ export const YouTubePlayer = React.forwardRef<
           <Button
             variant="primary"
             size="lg"
+            data-gesture="start-audio"
             onClick={handleStartAudioGesture}
             className="gap-2 shadow-lg shadow-[#1db954]/20"
           >

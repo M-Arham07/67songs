@@ -52,6 +52,8 @@ export function NowPlayingBar({ onPlayToggle, onSkip, onSeek }: NowPlayingBarPro
     duration,
     volume,
     isMuted,
+    isAutoplayBlocked,
+    setIsAutoplayBlocked,
     syncStatus,
     driftMs,
     setVolume,
@@ -152,24 +154,43 @@ export function NowPlayingBar({ onPlayToggle, onSkip, onSeek }: NowPlayingBarPro
             </div>
           )}
 
-          {/* Play/Pause Button */}
-          <button
-            onClick={isMaster ? onPlayToggle : undefined}
-            disabled={!isMaster && !currentTrack}
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-transform active:scale-95",
-              isMaster
-                ? "bg-[#fafafa] text-[#0a0a0a] hover:scale-105 hover:bg-white cursor-pointer"
-                : "bg-[#262626] text-[#666666] cursor-not-allowed opacity-60"
-            )}
-            title={isMaster ? (isPlaying ? "Pause" : "Play") : "Master controls playback"}
-          >
-            {isPlaying ? (
-              <Pause className="h-4 w-4 fill-current" />
-            ) : (
-              <Play className="h-4 w-4 fill-current ml-0.5" />
-            )}
-          </button>
+          {/* Play/Pause Button / Autoplay Unblock Button */}
+          {isAutoplayBlocked ? (
+            <button
+              onClick={() => {
+                setIsAutoplayBlocked(false);
+                const gestureBtn = document.querySelector('[data-gesture="start-audio"]') as HTMLButtonElement;
+                if (gestureBtn) gestureBtn.click();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#1db954] text-black font-bold text-xs animate-pulse shadow-lg shadow-[#1db954]/30 cursor-pointer"
+            >
+              <Play className="h-3.5 w-3.5 fill-current" />
+              <span>Tap to Start Audio</span>
+            </button>
+          ) : isMaster ? (
+            <button
+              onClick={onPlayToggle}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-[#fafafa] text-black hover:scale-105 active:scale-95 transition-all shadow-md shadow-white/10"
+              title={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? (
+                <Pause className="h-4 w-4 fill-current" />
+              ) : (
+                <Play className="h-4 w-4 fill-current ml-0.5" />
+              )}
+            </button>
+          ) : (
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-[#181818] border border-[#262626] text-[#666666]"
+              title="Master controls playback"
+            >
+              {isPlaying ? (
+                <Radio className="h-4 w-4 text-[#1db954] animate-pulse" />
+              ) : (
+                <Lock className="h-3.5 w-3.5" />
+              )}
+            </div>
+          )}
 
           {/* Skip Button (Master Only) */}
           {isMaster && (
