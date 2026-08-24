@@ -37,8 +37,13 @@ export type SongRequest = z.infer<typeof SongRequestSchema>;
 export const SongRequestActionSchema = z.object({
   requestId: z.string(),
   action: z.enum(["accept", "reject"]),
-  insertPosition: z.enum(["next", "end"]).default("end"),
+  insertPosition: z.enum(["next", "end"]).optional().default("end"),
   rejectionReason: z.string().optional(),
 });
 
-export type SongRequestAction = z.infer<typeof SongRequestActionSchema>;
+export type SongRequestAction = {
+  requestId: string;
+  action: "accept" | "reject";
+  insertPosition?: "next" | "end";
+  rejectionReason?: string;
+};
