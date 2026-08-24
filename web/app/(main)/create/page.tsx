@@ -55,6 +55,9 @@ export default function CreateRoomPage() {
         throw new Error(json.error || "Failed to create room");
       }
 
+      if (json.masterToken) {
+        sessionStorage.setItem(`master_token_${json.roomId}`, json.masterToken);
+      }
       toast.success(`Jam created! Code: ${json.code}`);
       router.push(`/room/${json.roomId}`);
     } catch (err: any) {

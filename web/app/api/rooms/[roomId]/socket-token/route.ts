@@ -31,17 +31,23 @@ export async function POST(
     let role: "master" | "co-host" | "member" | "guest" = "guest";
     let isMaster = false;
 
-    if (session?.user?.id) {
+    const masterToken = body?.masterToken;
+    const isMasterAuth =
+      (session?.user?.id && room.masterUserId.toString() === session.user.id) ||
+      (masterToken && room.masterToken && masterToken === room.masterToken);
+
+    if (isMasterAuth) {
+      userId = room.masterUserId.toString();
+      name = session?.user?.name || "Host (Master)";
+      avatarUrl = session?.user?.image || null;
+      role = "master";
+      isMaster = true;
+    } else if (session?.user?.id) {
       userId = session.user.id;
       name = session.user.name || "Member";
       avatarUrl = session.user.image || null;
-
-      if (room.masterUserId.toString() === userId) {
-        role = "master";
-        isMaster = true;
-      } else {
-        role = "member";
-      }
+      role = "member";
+      isMaster = false;
     } else if (guestToken) {
       const guestSession = await verifyGuestSession(guestToken);
       if (!guestSession || guestSession.roomId !== roomId) {

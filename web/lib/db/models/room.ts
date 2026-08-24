@@ -12,6 +12,7 @@ export interface IRoom extends Document {
   capacity: number;
   status: "active" | "ended" | "expired";
   currentTrack?: NormalizedTrack | null;
+  masterToken?: string;
   createdAt: Date;
   activatedAt?: Date;
   endedAt?: Date;
@@ -29,6 +30,7 @@ const RoomSchema = new Schema<IRoom>(
     },
     title: { type: String, required: true, trim: true },
     masterUserId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    masterToken: { type: String, select: true, index: true },
     visibility: {
       type: String,
       enum: ["private", "unlisted", "public", "nearby"],

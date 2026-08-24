@@ -56,11 +56,13 @@ function RoomPageContent() {
       try {
         const guestName =
           sessionStorage.getItem(`guest_name_${roomId}`) || undefined;
+        const masterToken =
+          sessionStorage.getItem(`master_token_${roomId}`) || undefined;
 
         const res = await fetch(`/api/rooms/${roomId}/socket-token`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ displayName: guestName }),
+          body: JSON.stringify({ displayName: guestName, masterToken }),
         });
 
         const json = await res.json();

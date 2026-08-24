@@ -76,11 +76,15 @@ export async function POST(req: Request) {
       attempts++;
     }
 
+    // Generate unique master token for room creator authentication
+    const masterToken = nanoid(32);
+
     // Create room in MongoDB
     const room = await Room.create({
       code,
       title: data.title,
       masterUserId: userId,
+      masterToken,
       visibility: data.visibility,
       joinPolicy: data.joinPolicy,
       collaborationPolicy: data.collaborationPolicy,
@@ -109,6 +113,7 @@ export async function POST(req: Request) {
       code: room.code,
       title: room.title,
       masterUserId: userId,
+      masterToken,
       inviteToken: rawInviteToken,
       inviteUrl,
     });
