@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 const MUSIC_SERVICE_URL = process.env.MUSIC_SERVICE_URL || "http://localhost:8000";
-const MUSIC_SERVICE_SECRET = process.env.MUSIC_SERVICE_SHARED_SECRET || "default_music_service_internal_secret_key_32_chars";
 
 export async function GET(
   req: Request,
@@ -13,26 +12,40 @@ export async function GET(
       return NextResponse.json({ error: "Missing videoId" }, { status: 400 });
     }
 
-    const res = await fetch(`${MUSIC_SERVICE_URL}/api/audio/${encodeURIComponent(videoId)}`, {
+    const rangeHeader = req.headers.get("range");
+    const headers: Record<string, string> = {};
+    if (rangeHeader) {
+      headers["range"] = rangeHeader;
+    }
+
+    const res = await fetch(`${MUSIC_SERVICE_URL}/api/stream/${encodeURIComponent(videoId)}`, {
       method: "GET",
-      headers: {
-        "x-music-secret": MUSIC_SERVICE_SECRET,
-      },
-      next: { revalidate: 3600 }, // Cache audio stream URL for 1 hour
+      headers,
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
       return NextResponse.json(
-        { error: err.detail || "Audio stream fallback extraction failed" },
+        { error: "Audio stream fallback extraction failed" },
         { status: res.status }
       );
     }
 
-    const data = await res.json();
-    return NextResponse.json(data);
+    // Pipe response stream directly
+    return new Response(res.body, {
+      status: res.status,
+      headers: {
+        "Content-Type": res.headers.get("content-type") || "audio/mp4",
+        "Accept-Ranges": "bytes",
+        ...(res.headers.get("content-range")
+          ? { "Content-Range": res.headers.get("content-range")! }
+          : {}),
+        ...(res.headers.get("content-length")
+          ? { "Content-Length": res.headers.get("content-length")! }
+          : {}),
+      },
+    });
   } catch (error: any) {
-    console.error("[API/AudioFallback] Error fetching audio stream:", error);
+    console.error("[API/AudioFallback] Error piping audio stream:", error);
     return NextResponse.json(
       { error: error.message || "Failed to retrieve audio fallback" },
       { status: 500 }

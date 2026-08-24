@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Play, Volume2, AlertTriangle, Loader2, Music2, Radio, Sparkles } from "lucide-react";
+import { Play, Volume2, AlertTriangle, Loader2, Radio, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { usePlayerStore } from "@/lib/stores/player-store";
@@ -80,30 +80,18 @@ export const YouTubePlayer = React.forwardRef<
   }, []);
 
   // Function to switch to Audio-Only fallback stream
-  const switchToAudioFallback = React.useCallback(async (vid: string) => {
+  const switchToAudioFallback = React.useCallback((vid: string) => {
     if (!vid) return;
     setIsExtractingAudio(true);
     setFallbackError(null);
 
-    try {
-      const res = await fetch(`/api/music/audio/${encodeURIComponent(vid)}`);
-      const data = await res.json();
-      if (!res.ok || !data.audioUrl) {
-        throw new Error(data.error || "Failed to extract audio fallback stream");
-      }
-
-      setAudioFallbackUrl(data.audioUrl);
-      setIsAudioFallback(true);
-      setIsReady(true);
-      setDuration(data.duration || 0);
-      onReady?.();
-    } catch (err: any) {
-      console.error("[YouTubePlayer] Audio fallback extraction failed:", err);
-      setFallbackError(err.message || "Audio stream unavailable");
-    } finally {
-      setIsExtractingAudio(false);
-    }
-  }, [onReady, setDuration, setIsReady]);
+    const streamUrl = `/api/music/audio/${encodeURIComponent(vid)}`;
+    setAudioFallbackUrl(streamUrl);
+    setIsAudioFallback(true);
+    setIsReady(true);
+    setIsExtractingAudio(false);
+    onReady?.();
+  }, [onReady, setIsReady]);
 
   // Initialize YT.Player instance once API is loaded
   React.useEffect(() => {
@@ -129,7 +117,6 @@ export const YouTubePlayer = React.forwardRef<
           modestbranding: 1,
           playsinline: 1,
           rel: 0,
-          origin: typeof window !== "undefined" ? window.location.origin : "",
         },
         events: {
           onReady: (event: any) => {
@@ -157,8 +144,9 @@ export const YouTubePlayer = React.forwardRef<
             onStateChange?.(stateCode);
           },
           onError: (event: any) => {
-            console.warn("[YouTubePlayer] Embed playback unavailable (Error code:", event.data, "). Falling back to audio-only stream.");
-            if (videoId) {
+            console.warn("[YouTubePlayer] Player error code:", event.data);
+            // Only switch to audio fallback on embed restricted errors (101 / 150)
+            if ((event.data === 101 || event.data === 150) && videoId) {
               switchToAudioFallback(videoId);
             }
             onError?.(event);
@@ -166,10 +154,7 @@ export const YouTubePlayer = React.forwardRef<
         },
       });
     } catch (e) {
-      console.warn("[YouTubePlayer] Player init failed, falling back to audio:", e);
-      if (videoId) {
-        switchToAudioFallback(videoId);
-      }
+      console.warn("[YouTubePlayer] Player initialization note:", e);
     }
   }, [isApiLoaded, videoId, isAudioFallback, onReady, onStateChange, onError, onTrackEnded, switchToAudioFallback, setIsReady, setPlayerState, setIsAutoplayBlocked, volume, isMuted]);
 
@@ -180,9 +165,7 @@ export const YouTubePlayer = React.forwardRef<
     setFallbackError(null);
   }, [videoId]);
 
-  // Mobile Autoplay Block Detection:
-  // Mobile browsers (iOS Safari, Android Chrome) block programmatic audio playback.
-  // Detect if player is in unstarted (-1) or paused (2) state and show Tap to Start overlay.
+  // Mobile Autoplay Block Detection
   React.useEffect(() => {
     if (!videoId) return;
 
@@ -372,6 +355,11 @@ export const YouTubePlayer = React.forwardRef<
           <audio
             ref={audioRef}
             src={audioFallbackUrl}
+            preload="auto"
+            onError={() => {
+              console.warn("[YouTubePlayer] Audio fallback stream error");
+              setFallbackError("Audio stream temporarily unavailable");
+            }}
             onPlay={() => {
               setPlayerState("playing");
               setIsAutoplayBlocked(false);
@@ -421,7 +409,7 @@ export const YouTubePlayer = React.forwardRef<
         </div>
       )}
 
-      {/* 4. Fatal Error State (if both YouTube and Audio fallback fail) */}
+      {/* 4. Fatal Error State */}
       {fallbackError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-[#141414] text-center space-y-3 z-30">
           <AlertTriangle className="h-8 w-8 text-[#e5484d]" />
