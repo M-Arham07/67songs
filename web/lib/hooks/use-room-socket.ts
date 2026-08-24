@@ -70,6 +70,7 @@ export function useRoomSocket(
               masterId: res.state.masterId,
               currentUserId: res.currentUserId,
               currentUserRole: res.currentUserRole,
+              isMasterClaim: Boolean(res.isMaster),
               currentTrack: res.state.currentTrack,
               playback: res.state.playback,
               queue: res.state.queue,

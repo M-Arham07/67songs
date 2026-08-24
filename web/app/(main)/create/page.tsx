@@ -56,7 +56,7 @@ export default function CreateRoomPage() {
       }
 
       if (json.masterToken) {
-        sessionStorage.setItem(`master_token_${json.roomId}`, json.masterToken);
+        localStorage.setItem(`master_token_${json.roomId}`, json.masterToken);
       }
       toast.success(`Jam created! Code: ${json.code}`);
       router.push(`/room/${json.roomId}`);

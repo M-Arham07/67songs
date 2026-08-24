@@ -100,6 +100,7 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
         state: room,
         currentUserId: userId,
         currentUserRole: member.role,
+        isMaster: member.isMaster,
       });
     }
   });

@@ -39,6 +39,7 @@ export interface RoomStoreState {
     masterId: string;
     currentUserId: string;
     currentUserRole: "master" | "co-host" | "member" | "guest";
+    isMasterClaim?: boolean; // trust JWT claim when provided
     currentTrack: NormalizedTrack | null;
     playback: PlaybackState;
     queue: QueueItem[];
@@ -100,15 +101,23 @@ export const useRoomStore = create<RoomStoreState>((set, get) => ({
   hostGraceExpiresAt: null,
 
   setRoomState: (data) => {
-    const isMaster = data.currentUserId === data.masterId;
+    // Trust JWT isMasterClaim if provided; fall back to ID comparison or role check
+    const isMaster =
+      data.isMasterClaim === true ||
+      data.currentUserRole === "master" ||
+      data.currentUserId === data.masterId;
     const isCoHost = data.currentUserRole === "co-host";
-    set({
+
+    // If we are master, update store masterId to our userId so future comparisons work
+    const resolvedMasterId = isMaster ? data.currentUserId : data.masterId;
+
+    set((prev) => ({
       roomId: data.roomId,
       roomCode: data.roomCode,
-      title: data.settings.title,
-      masterId: data.masterId,
+      title: data.settings?.title ?? prev.title ?? "Synchronized Jam",
+      masterId: resolvedMasterId,
       currentUserId: data.currentUserId,
-      currentUserRole: data.currentUserRole,
+      currentUserRole: isMaster ? "master" : data.currentUserRole,
       isMaster,
       isCoHost,
       currentTrack: data.currentTrack,
@@ -119,7 +128,7 @@ export const useRoomStore = create<RoomStoreState>((set, get) => ({
       chatMessages: data.chatBuffer || [],
       pendingSongRequests: data.pendingRequests || [],
       isConnected: true,
-    });
+    }));
   },
 
   updatePlayback: (playback) => set({ playback, currentTrack: playback.currentTrack }),
