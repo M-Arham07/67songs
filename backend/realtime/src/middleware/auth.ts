@@ -7,6 +7,8 @@ export interface AuthenticatedSocket extends Socket {
     name: string;
     avatarUrl?: string | null;
     roomId: string;
+    roomCode?: string;
+    title?: string;
     role: "master" | "co-host" | "member" | "guest";
     isMaster: boolean;
   };
@@ -39,6 +41,8 @@ export function socketAuthMiddleware(
       name: decoded.name || "Anonymous",
       avatarUrl: decoded.avatarUrl || null,
       roomId: decoded.roomId,
+      roomCode: decoded.roomCode || undefined,
+      title: decoded.title || undefined,
       role: decoded.role || "guest",
       isMaster: Boolean(decoded.isMaster),
     };

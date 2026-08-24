@@ -45,7 +45,7 @@ export function useRoomSocket(
     const socket = getSocket(socketServerUrl, token);
     socketRef.current = socket;
 
-    socket.on("connect", async () => {
+    const joinRoom = async () => {
       setIsConnected(true);
       console.log("[Socket] Connected to realtime server");
 
@@ -81,7 +81,12 @@ export function useRoomSocket(
           }
         }
       );
-    });
+    };
+
+    socket.on("connect", joinRoom);
+    if (socket.connected) {
+      joinRoom();
+    }
 
     socket.on("disconnect", () => {
       setIsConnected(false);

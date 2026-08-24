@@ -9,6 +9,8 @@ export interface SocketTokenPayload {
   name: string;
   avatarUrl?: string | null;
   roomId: string;
+  roomCode?: string;
+  title?: string;
   role: "master" | "co-host" | "member" | "guest";
   isMaster: boolean;
 }

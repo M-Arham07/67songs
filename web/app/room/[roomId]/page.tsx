@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ActiveRoom } from "@/components/room/active-room";
 import { usePlaybackSync } from "@/lib/hooks/use-playback-sync";
 import { useRoomSocket } from "@/lib/hooks/use-room-socket";
+import { useRoomStore } from "@/lib/stores/room-store";
 import { Button } from "@/components/ui/button";
 
 function RoomPageContent() {
@@ -68,6 +69,18 @@ function RoomPageContent() {
         const json = await res.json();
         if (!res.ok) {
           throw new Error(json.error || "Failed to enter room");
+        }
+
+        if (json.room && json.user) {
+          useRoomStore.setState({
+            roomId,
+            roomCode: json.room.code,
+            title: json.room.title,
+            masterId: json.room.masterUserId,
+            currentUserId: json.user.id,
+            currentUserRole: json.user.role,
+            isMaster: Boolean(json.user.isMaster),
+          });
         }
 
         setToken(json.token);

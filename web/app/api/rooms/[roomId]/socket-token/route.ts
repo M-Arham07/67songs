@@ -81,6 +81,8 @@ export async function POST(
       name,
       avatarUrl,
       roomId,
+      roomCode: room.code,
+      title: room.title,
       role,
       isMaster,
     });
@@ -91,6 +93,12 @@ export async function POST(
       success: true,
       token: socketToken,
       socketServerUrl,
+      room: {
+        id: room._id.toString(),
+        code: room.code,
+        title: room.title,
+        masterUserId: room.masterUserId.toString(),
+      },
       user: {
         id: userId,
         name,

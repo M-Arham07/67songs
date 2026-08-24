@@ -15,25 +15,35 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
 
     // If room not in memory, initialize it
     if (!room) {
-      room = roomStateManager.createRoom(roomId, "----", userId, {
-        title: "Synchronized Jam",
-        visibility: "unlisted",
-        joinPolicy: {
-          allowGuests: true,
-          requiresSignIn: false,
-          requiresApproval: false,
-        },
-        collaborationPolicy: {
-          allowSongRequests: true,
-          guestsCanAddDirectly: false,
-          guestsCanReorder: false,
-          votingEnabled: false,
-          chatEnabled: true,
-          reactionsEnabled: true,
-          coHostPlaybackEnabled: true,
-        },
-        capacity: 25,
-      });
+      room = roomStateManager.createRoom(
+        roomId,
+        socket.data.roomCode || "----",
+        socket.data.isMaster ? userId : "pending",
+        {
+          title: socket.data.title || "Synchronized Jam",
+          visibility: "unlisted",
+          joinPolicy: {
+            allowGuests: true,
+            requiresSignIn: false,
+            requiresApproval: false,
+          },
+          collaborationPolicy: {
+            allowSongRequests: true,
+            guestsCanAddDirectly: false,
+            guestsCanReorder: false,
+            votingEnabled: false,
+            chatEnabled: true,
+            reactionsEnabled: true,
+            coHostPlaybackEnabled: true,
+          },
+          capacity: 25,
+        }
+      );
+    }
+
+    // If socket has Master authority, assert masterId
+    if (socket.data.isMaster || room.masterId === "pending") {
+      room.masterId = userId;
     }
 
     // Clear any active host grace period if master reconnected
@@ -47,13 +57,14 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
       });
     }
 
+    const isMemberMaster = userId === room.masterId || socket.data.isMaster;
     const member: ActiveMember = {
       id: userId,
       socketId: socket.id,
       name,
       avatarUrl: avatarUrl || null,
-      role: userId === room.masterId ? "master" : role,
-      isMaster: userId === room.masterId,
+      role: isMemberMaster ? "master" : role,
+      isMaster: isMemberMaster,
       isCoHost: room.coHostIds.includes(userId),
       isMuted: false,
       connectedAt: Date.now(),
