@@ -1,0 +1,13 @@
+{
+  "name": "67songs-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --prefix web dev",
+    "dev:realtime": "pnpm --prefix backend/realtime dev",
+    "dev:music": "cd backend/music && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+    "build:web": "pnpm --prefix web build",
+    "build:realtime": "pnpm --prefix backend/realtime build",
+    "typecheck": "pnpm --prefix web exec tsc --noEmit && pnpm --prefix backend/realtime exec tsc --noEmit"
+  }
+}
