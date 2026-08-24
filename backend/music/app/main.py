@@ -3,6 +3,7 @@ import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from app.routers import search
 
 load_dotenv()
 
@@ -21,12 +22,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(search.router)
+
 
 @app.get("/health")
 def health_check():
     return {
         "status": "healthy",
         "service": "67songs-music-service",
+        "provider": "ytmusicapi-unauthenticated",
         "timestamp": int(time.time() * 1000),
     }
 
