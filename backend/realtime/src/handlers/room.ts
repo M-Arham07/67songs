@@ -67,8 +67,20 @@ export function registerRoomHandlers(io: Server, socket: AuthenticatedSocket) {
 
     console.log(`[Room] ${name} (${userId}) joined room ${roomId} as ${member.role}`);
 
-    // Broadcast member joined
+    // Broadcast member joined to other sockets
     socket.to(roomId).emit("member_joined", member);
+
+    // Send system message to room chat
+    const joinMsg = {
+      id: `sys_join_${Date.now()}_${userId}`,
+      roomId,
+      sender: { id: "system", name: "67Songs", role: "master" as const },
+      content: `👋 ${name} joined the jam`,
+      isSystem: true,
+      timestamp: Date.now(),
+    };
+    room.chatBuffer.push(joinMsg);
+    io.to(roomId).emit("chat_message", joinMsg);
 
     // Return full state in ack
     if (typeof ack === "function") {
@@ -117,6 +129,18 @@ function handleMemberLeave(io: Server, socket: AuthenticatedSocket) {
 
   io.to(roomId).emit("member_left", { memberId: userId });
   console.log(`[Room] ${name} (${userId}) left room ${roomId}`);
+
+  // Send system message to room chat
+  const leaveMsg = {
+    id: `sys_leave_${Date.now()}_${userId}`,
+    roomId,
+    sender: { id: "system", name: "67Songs", role: "master" as const },
+    content: `🚪 ${name} left the jam`,
+    isSystem: true,
+    timestamp: Date.now(),
+  };
+  room.chatBuffer.push(leaveMsg);
+  io.to(roomId).emit("chat_message", leaveMsg);
 
   // If the Master disconnected, initiate 60-second grace period
   if (userId === room.masterId) {

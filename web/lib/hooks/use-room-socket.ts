@@ -91,11 +91,16 @@ export function useRoomSocket(
     // Room & presence events
     socket.on("member_joined", (member: any) => {
       addMember(member);
-      toast.info(`${member.name} joined the jam`);
+      toast.success(`👋 ${member.name} joined the jam`, {
+        description: "New participant connected",
+      });
     });
 
-    socket.on("member_left", ({ memberId, reason }: any) => {
+    socket.on("member_left", ({ memberId }: any) => {
+      const existing = useRoomStore.getState().members[memberId];
+      const memberName = existing?.name || "A participant";
       removeMember(memberId);
+      toast.info(`🚪 ${memberName} left the jam`);
     });
 
     socket.on("member_updated", (member: any) => {

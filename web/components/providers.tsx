@@ -22,7 +22,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       {children}
       <Toaster
         theme="dark"
-        position="bottom-right"
+        position="top-right"
+        richColors
+        closeButton
         toastOptions={{
           style: {
             background: "#141414",
