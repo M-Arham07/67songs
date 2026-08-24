@@ -49,9 +49,10 @@ export function useRoomSocket(
       setIsConnected(true);
       console.log("[Socket] Connected to realtime server");
 
-      // Run initial clock synchronization
+      // Run initial clock synchronization & start periodic jitter sync
       setSyncStatus("syncing");
       await clockSynchronizer.syncWithServer(socket);
+      clockSynchronizer.startPeriodicSync(socket);
       setSyncStatus("ready");
 
       // Join room
@@ -90,6 +91,7 @@ export function useRoomSocket(
     }
 
     socket.on("disconnect", () => {
+      clockSynchronizer.stopPeriodicSync();
       setIsConnected(false);
       setSyncStatus("idle");
     });
