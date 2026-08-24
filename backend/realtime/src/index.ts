@@ -40,6 +40,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Transparently proxy /api/* requests to internal Python Music Service (FastAPI)
+  if (req.url && req.url.startsWith("/api/")) {
+    const musicPort = Number(process.env.MUSIC_SERVICE_PORT) || 8000;
+    const musicHost = process.env.MUSIC_SERVICE_HOST || "127.0.0.1";
+
+    const proxyReq = http.request(
+      {
+        host: musicHost,
+        port: musicPort,
+        path: req.url,
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host: `${musicHost}:${musicPort}`,
+        },
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+      }
+    );
+
+    proxyReq.on("error", (err) => {
+      console.warn("[Music Proxy] Error forwarding to music service:", err.message);
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Music service unavailable", details: err.message }));
+    });
+
+    req.pipe(proxyReq, { end: true });
+    return;
+  }
+
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ error: "Not Found" }));
 });
