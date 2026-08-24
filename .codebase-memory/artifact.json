@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "95b2fcbb5feade228eda5e29442632ad46e79a17",
+    "indexed_at": "2026-08-24T16:03:05Z",
+    "project": "67songs",
+    "nodes": 37,
+    "edges": 41,
+    "original_size": 1179648,
+    "compressed_size": 6451,
+    "compression_level": 9
+}
