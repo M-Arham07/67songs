@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { NormalizedTrackSchema } from "./music";
+import { NormalizedTrackSchema } from "./music.js";
 
 export const PlaybackStatusSchema = z.enum([
   "idle",

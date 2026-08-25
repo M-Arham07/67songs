@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { NormalizedTrackSchema, type NormalizedTrack } from "./music";
-import { QueueItemSchema, type QueueItem } from "./queue";
-import { PlaybackStateSchema, type PlaybackState } from "./playback";
-import { ActiveMemberSchema, type ActiveMember } from "./user";
-import { ChatMessageSchema, type ChatMessage } from "./chat";
-import { SongRequestSchema, type SongRequest } from "./song-request";
+import { NormalizedTrackSchema, type NormalizedTrack } from "./music.js";
+import { QueueItemSchema, type QueueItem } from "./queue.js";
+import { PlaybackStateSchema, type PlaybackState } from "./playback.js";
+import { ActiveMemberSchema, type ActiveMember } from "./user.js";
+import { ChatMessageSchema, type ChatMessage } from "./chat.js";
+import { SongRequestSchema, type SongRequest } from "./song-request.js";
 
 export const RoomVisibilitySchema = z.enum(["private", "unlisted", "public", "nearby"]);
 export type RoomVisibility = z.infer<typeof RoomVisibilitySchema>;

@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { NormalizedTrackSchema } from "./music";
-import { QueueItemSchema } from "./queue";
-import { PlayAtPayloadSchema, PauseAtPayloadSchema, SeekAtPayloadSchema, PlaybackStateSchema } from "./playback";
-import { ActiveMemberSchema } from "./user";
-import { ChatMessageSchema, ReactionSchema } from "./chat";
-import { ActiveRoomSettingsSchema } from "./room";
-import { SongRequestSchema, SongRequestActionSchema } from "./song-request";
+import { NormalizedTrackSchema } from "./music.js";
+import { QueueItemSchema } from "./queue.js";
+import { PlayAtPayloadSchema, PauseAtPayloadSchema, SeekAtPayloadSchema, PlaybackStateSchema } from "./playback.js";
+import { ActiveMemberSchema } from "./user.js";
+import { ChatMessageSchema, ReactionSchema } from "./chat.js";
+import { ActiveRoomSettingsSchema } from "./room.js";
+import { SongRequestSchema, SongRequestActionSchema } from "./song-request.js";
 
 // Base event payload structure
 export const BaseCommandSchema = z.object({
