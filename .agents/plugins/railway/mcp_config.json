@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "railway": {
+      "command": "/home/M-Arham07/.railway/bin/railway",
+      "args": ["mcp", "proxy"]
+    }
+  }
+}

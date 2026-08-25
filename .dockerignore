@@ -1,0 +1,16 @@
+.git
+.agents
+node_modules
+**/node_modules
+.next
+dist
+**/dist
+build
+.venv
+venv
+__pycache__
+*.pyc
+.DS_Store
+.env
+.env*.local
+/pnpm-lock.yaml
