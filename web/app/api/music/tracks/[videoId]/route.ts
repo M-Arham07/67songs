@@ -11,8 +11,13 @@ export async function GET(
       return NextResponse.json({ error: "videoId is required" }, { status: 400 });
     }
 
-    const musicServiceUrl = process.env.MUSIC_SERVICE_URL || "http://localhost:8000";
-    const sharedSecret = process.env.MUSIC_SERVICE_SHARED_SECRET || "";
+    const musicServiceUrl =
+      process.env.MUSIC_SERVICE_URL ||
+      process.env.SOCKET_SERVER_URL ||
+      "http://localhost:8000";
+    const sharedSecret =
+      process.env.MUSIC_SERVICE_SHARED_SECRET ||
+      "local_music_shared_secret_1234567890";
 
     const url = `${musicServiceUrl}/api/tracks/${encodeURIComponent(videoId)}`;
     const res = await fetch(url, {

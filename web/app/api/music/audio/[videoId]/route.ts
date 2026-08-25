@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-const MUSIC_SERVICE_URL = process.env.MUSIC_SERVICE_URL || "http://localhost:8000";
+function getMusicServiceUrl() {
+  return (
+    process.env.MUSIC_SERVICE_URL ||
+    process.env.SOCKET_SERVER_URL ||
+    "http://localhost:8000"
+  );
+}
 
 export async function GET(
   req: Request,
@@ -18,10 +24,13 @@ export async function GET(
       headers["range"] = rangeHeader;
     }
 
-    const res = await fetch(`${MUSIC_SERVICE_URL}/api/stream/${encodeURIComponent(videoId)}`, {
-      method: "GET",
-      headers,
-    });
+    const res = await fetch(
+      `${getMusicServiceUrl()}/api/stream/${encodeURIComponent(videoId)}`,
+      {
+        method: "GET",
+        headers,
+      }
+    );
 
     if (!res.ok) {
       return NextResponse.json(

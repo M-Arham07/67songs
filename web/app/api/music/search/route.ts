@@ -10,8 +10,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ query: "", filter, results: [], timestamp: Date.now() });
     }
 
-    const musicServiceUrl = process.env.MUSIC_SERVICE_URL || "http://localhost:8000";
-    const sharedSecret = process.env.MUSIC_SERVICE_SHARED_SECRET || "";
+    const musicServiceUrl =
+      process.env.MUSIC_SERVICE_URL ||
+      process.env.SOCKET_SERVER_URL ||
+      "http://localhost:8000";
+    const sharedSecret =
+      process.env.MUSIC_SERVICE_SHARED_SECRET ||
+      "local_music_shared_secret_1234567890";
 
     const url = new URL("/api/search", musicServiceUrl);
     url.searchParams.set("q", q.trim());
