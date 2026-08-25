@@ -1,8 +1,9 @@
 import { SignJWT, jwtVerify } from "jose";
 
-const SOCKET_TOKEN_SECRET = new TextEncoder().encode(
-  process.env.SOCKET_TOKEN_SECRET || "default_socket_jwt_token_secret_minimum_32_chars!!"
-);
+function getSocketTokenSecret() {
+  const secret = process.env.SOCKET_TOKEN_SECRET || "local_socket_jwt_token_secret_minimum_32_chars!";
+  return new TextEncoder().encode(secret);
+}
 
 export interface SocketTokenPayload {
   userId: string;
@@ -23,12 +24,12 @@ export async function mintSocketToken(
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${expiresInSeconds}s`)
-    .sign(SOCKET_TOKEN_SECRET);
+    .sign(getSocketTokenSecret());
 }
 
 export async function verifySocketToken(token: string): Promise<SocketTokenPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, SOCKET_TOKEN_SECRET);
+    const { payload } = await jwtVerify(token, getSocketTokenSecret());
     if (!payload.userId || !payload.roomId || !payload.role) {
       return null;
     }

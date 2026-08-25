@@ -28,7 +28,7 @@ export function socketAuthMiddleware(
 
   const secret =
     process.env.SOCKET_TOKEN_SECRET ||
-    "default_socket_jwt_token_secret_minimum_32_chars!!";
+    "local_socket_jwt_token_secret_minimum_32_chars!";
 
   try {
     const decoded = jwt.verify(token, secret) as any;
