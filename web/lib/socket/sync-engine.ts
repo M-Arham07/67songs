@@ -17,11 +17,12 @@ export interface SyncEngineOptions {
   onDriftUpdate?: (driftMs: number) => void;
 }
 
-// Tolerance boundaries
-const IN_SYNC_THRESHOLD_SECONDS = 0.35; // 350ms (natural IFrame timer resolution)
-const HARD_SEEK_DRIFT_SECONDS = 1.5; // Only seek if drift exceeds 1.5s
-const DRIFT_CHECK_INTERVAL_MS = 1000; // Check once per second
-const SEEK_COOLDOWN_MS = 5000; // Do not seek more than once per 5 seconds
+// Precision Sync Boundaries
+const PERFECT_SYNC_THRESHOLD_SECONDS = 0.035; // ±35ms (imperceptible audio lockstep)
+const MICRO_PITCH_MAX_DRIFT_SECONDS = 1.2; // Use continuous rate micro-adjustments up to 1.2s
+const HARD_SEEK_DRIFT_SECONDS = 1.2; // Hard seek only if drift exceeds 1.2s
+const DRIFT_CHECK_INTERVAL_MS = 500; // Evaluate 2 times per second (500ms)
+const HARD_SEEK_COOLDOWN_MS = 4000; // 4s cooldown between hard seeks
 
 export class SyncEngine {
   private playerRef: React.RefObject<YouTubePlayerRef | null> | null = null;
@@ -29,8 +30,9 @@ export class SyncEngine {
   private driftCheckInterval: NodeJS.Timeout | null = null;
   private currentPlayback: PlaybackState | null = null;
   private options: SyncEngineOptions;
-  private lastCorrectionAtMs: number = 0;
+  private lastHardSeekAtMs: number = 0;
   private playbackStartedAtMs: number = 0;
+  private currentRate: number = 1.0;
 
   constructor(options: SyncEngineOptions = {}) {
     this.options = options;
@@ -49,6 +51,8 @@ export class SyncEngine {
     const player = this.playerRef?.current;
     if (!player) return;
 
+    this.resetPlaybackRate();
+
     const serverNow = clockSynchronizer.getEstimatedServerNow();
     const msUntilStart = payload.startAtServerMs - serverNow;
 
@@ -63,11 +67,11 @@ export class SyncEngine {
     };
 
     console.log(
-      `[SyncEngine] Received play_at for "${payload.track.title}" (start in ${msUntilStart}ms at ${payload.positionSeconds}s)`
+      `[SyncEngine] Received play_at for "${payload.track.title}" (scheduled start in ${msUntilStart}ms at ${payload.positionSeconds}s)`
     );
 
     if (msUntilStart > 0) {
-      // Cue track and seek in advance
+      // Cue track and seek in advance to pre-buffer
       player.cueVideo(payload.track.videoId, payload.positionSeconds);
       this.options.onSyncStatusChange?.("syncing");
 
@@ -78,7 +82,7 @@ export class SyncEngine {
         this.startDriftMonitoring();
       }, msUntilStart);
     } else {
-      // Late joiner: compute canonical position and play
+      // Late joiner: compute canonical position and play immediately
       const lateSeconds = Math.abs(msUntilStart) / 1000;
       const expectedPosition = payload.positionSeconds + lateSeconds;
 
@@ -96,6 +100,7 @@ export class SyncEngine {
       this.scheduledTimer = null;
     }
     this.stopDriftMonitoring();
+    this.resetPlaybackRate();
 
     const player = this.playerRef?.current;
     if (player) {
@@ -109,7 +114,8 @@ export class SyncEngine {
     const player = this.playerRef?.current;
     if (!player) return;
 
-    this.lastCorrectionAtMs = Date.now();
+    this.resetPlaybackRate();
+    this.lastHardSeekAtMs = Date.now();
 
     if (payload.startAtServerMs) {
       const serverNow = clockSynchronizer.getEstimatedServerNow();
@@ -151,15 +157,15 @@ export class SyncEngine {
       return;
     }
 
-    // Only evaluate drift if player is actively PLAYING (state 1). If buffering (state 3), wait.
+    // Only monitor drift when player is actively in PLAYING state (code 1)
     const playerState = player.getPlayerState();
     if (playerState !== 1) {
       return;
     }
 
     const now = Date.now();
-    // Allow a 3-second buffer warm-up grace period after start/seek
-    if (now - this.playbackStartedAtMs < 3000) {
+    // Warm-up grace period after start/seek
+    if (now - this.playbackStartedAtMs < 2000) {
       return;
     }
 
@@ -177,23 +183,62 @@ export class SyncEngine {
 
     this.options.onDriftUpdate?.(driftMs);
 
-    // Throttle hard seeks to at most once per 5 seconds
-    const canCorrect = now - this.lastCorrectionAtMs > SEEK_COOLDOWN_MS;
-
-    if (absDrift <= IN_SYNC_THRESHOLD_SECONDS) {
+    // 1. Perfect Sync Zone (±35ms)
+    if (absDrift <= PERFECT_SYNC_THRESHOLD_SECONDS) {
       this.options.onSyncStatusChange?.("in_sync");
-    } else if (absDrift > HARD_SEEK_DRIFT_SECONDS && canCorrect) {
-      this.lastCorrectionAtMs = now;
+      if (this.currentRate !== 1.0) {
+        this.setRate(1.0);
+      }
+      return;
+    }
+
+    // 2. Micro-Pitch Dynamic Correction Zone (35ms < absDrift <= 1.2s)
+    // Smoothly warp speed without audio interruption or buffering
+    if (absDrift <= MICRO_PITCH_MAX_DRIFT_SECONDS) {
+      this.options.onSyncStatusChange?.("syncing");
+      if (driftSeconds > 0) {
+        // Player is slightly ahead -> temporarily slow down
+        const targetRate = absDrift > 0.4 ? 0.95 : 0.98;
+        this.setRate(targetRate);
+      } else {
+        // Player is slightly behind -> temporarily speed up
+        const targetRate = absDrift > 0.4 ? 1.05 : 1.02;
+        this.setRate(targetRate);
+      }
+      return;
+    }
+
+    // 3. Macro Drift Zone (> 1.2s): Enforce hard seek with cooldown
+    const canHardSeek = now - this.lastHardSeekAtMs > HARD_SEEK_COOLDOWN_MS;
+    if (absDrift > HARD_SEEK_DRIFT_SECONDS && canHardSeek) {
+      this.lastHardSeekAtMs = now;
+      this.resetPlaybackRate();
       console.log(
-        `[SyncEngine] Drift ${driftMs}ms exceeded threshold (>1.5s). Re-aligning to ${expectedCanonicalPosition.toFixed(2)}s`
+        `[SyncEngine:HardSeek] Large drift ${driftMs}ms (>1.2s). Re-aligning to ${expectedCanonicalPosition.toFixed(2)}s`
       );
       player.seekTo(expectedCanonicalPosition);
       this.options.onSyncStatusChange?.("syncing");
     }
   }
 
+  private setRate(rate: number) {
+    if (this.currentRate === rate) return;
+    this.currentRate = rate;
+    try {
+      this.playerRef?.current?.setPlaybackRate(rate);
+    } catch {}
+  }
+
+  private resetPlaybackRate() {
+    this.currentRate = 1.0;
+    try {
+      this.playerRef?.current?.setPlaybackRate(1.0);
+    } catch {}
+  }
+
   public destroy() {
     if (this.scheduledTimer) clearTimeout(this.scheduledTimer);
     this.stopDriftMonitoring();
+    this.resetPlaybackRate();
   }
 }

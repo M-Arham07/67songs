@@ -11,7 +11,7 @@ import {
   type SeekAtPayload,
 } from "../types/index.js";
 
-const SCHEDULE_LEAD_TIME_MS = 2500; // 2.5s future scheduling for cueing & buffering
+const SCHEDULE_LEAD_TIME_MS = 1200; // 1.2s future scheduling for ultra-low latency start
 
 export function registerPlaybackHandlers(io: Server, socket: AuthenticatedSocket) {
   const { userId, roomId } = socket.data;

@@ -24,6 +24,8 @@ export interface YouTubePlayerRef {
   loadVideo: (videoId: string, startSeconds?: number) => void;
   cueVideo: (videoId: string, startSeconds?: number) => void;
   setVolume: (volume: number) => void;
+  setPlaybackRate: (rate: number) => void;
+  getPlaybackRate: () => number;
 }
 
 interface YouTubePlayerProps {
@@ -312,6 +314,35 @@ export const YouTubePlayer = React.forwardRef<
           }
         } catch (e) {
           console.error("[YouTubePlayer] setVolume error:", e);
+        }
+      },
+      setPlaybackRate: (rate: number) => {
+        if (isAudioFallback && audioRef.current) {
+          audioRef.current.playbackRate = rate;
+          return;
+        }
+
+        if (!playerRef.current) return;
+        try {
+          if (typeof playerRef.current.setPlaybackRate === "function") {
+            playerRef.current.setPlaybackRate(rate);
+          }
+        } catch (e) {
+          console.warn("[YouTubePlayer] setPlaybackRate error:", e);
+        }
+      },
+      getPlaybackRate: () => {
+        if (isAudioFallback && audioRef.current) {
+          return audioRef.current.playbackRate || 1;
+        }
+
+        if (!playerRef.current || typeof playerRef.current.getPlaybackRate !== "function") {
+          return 1;
+        }
+        try {
+          return playerRef.current.getPlaybackRate() || 1;
+        } catch {
+          return 1;
         }
       },
     }),
