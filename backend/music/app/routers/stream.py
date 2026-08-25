@@ -53,7 +53,6 @@ def _get_cookie_file_path() -> str | None:
 
     for candidate in candidates:
         if candidate.is_file() and candidate.stat().st_size > 0:
-            print(f"[yt-dlp] Using cookie file at: {candidate}")
             return str(candidate)
 
     return None
@@ -65,24 +64,23 @@ def _is_cache_valid(video_id: str) -> bool:
     return (time.time() * 1000 - ts) < _cache_ttl_ms
 
 
-def _extract_with_client(url: str, client_name: str, cookie_path: str | None) -> dict | None:
-    """Attempts extraction with a specific player client."""
+def _extract_with_opts(url: str, use_cookies: bool, client_name: str | None) -> dict | None:
+    """Attempts extraction without strict format constraints to support all audio tracks."""
     opts = {
-        "format": "bestaudio/best",
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "extract_flat": False,
         "skip_download": True,
-        "socket_timeout": 12,
-        "extractor_args": {
-            "youtube": {
-                "player_client": [client_name]
-            }
-        }
+        "socket_timeout": 15,
     }
+
+    cookie_path = _get_cookie_file_path() if use_cookies else None
     if cookie_path:
         opts["cookiefile"] = cookie_path
+
+    if client_name:
+        opts["extractor_args"] = {"youtube": {"player_client": [client_name]}}
 
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -93,19 +91,13 @@ def _extract_with_client(url: str, client_name: str, cookie_path: str | None) ->
         if "url" in info and info["url"]:
             raw_url = info["url"]
         else:
-            formats = info.get("formats", [])
-            audio_formats = [
-                f for f in formats
-                if f.get("acodec") != "none"
-                and f.get("url")
-            ]
+            formats = [f for f in info.get("formats", []) if f.get("url")]
+            # Filter for audio formats (audio-only preferred, or combined formats)
+            audio_formats = [f for f in formats if f.get("acodec") != "none"]
             if audio_formats:
                 raw_url = audio_formats[-1]["url"]
             elif formats:
-                for f in reversed(formats):
-                    if f.get("url"):
-                        raw_url = f["url"]
-                        break
+                raw_url = formats[-1]["url"]
 
         if raw_url:
             return {
@@ -122,20 +114,30 @@ def _extract_audio_url_sync(video_id: str) -> dict | None:
         return _audio_url_cache[video_id]
 
     url = f"https://www.youtube.com/watch?v={video_id}"
-    cookie_path = _get_cookie_file_path()
 
-    # Try mweb client first, then web client (do NOT use tv client as it triggers 'reload page' errors with cookies)
-    for client in ["mweb", "web"]:
+    # Cascading strategy:
+    # 1. mweb with cookies (fastest & bypasses bot check for 95% of tracks)
+    # 2. default with cookies
+    # 3. mweb without cookies (for VEVO / public tracks where cookies restrict formats)
+    # 4. default without cookies
+    attempts = [
+        (True, "mweb"),
+        (True, None),
+        (False, "mweb"),
+        (False, None),
+    ]
+
+    for use_cookies, client_name in attempts:
         try:
-            res = _extract_with_client(url, client, cookie_path)
+            res = _extract_with_opts(url, use_cookies, client_name)
             if res and res.get("audioUrl"):
                 import time
                 _audio_url_cache[video_id] = res
                 _cache_timestamps[video_id] = time.time() * 1000
-                print(f"[yt-dlp] Extracted audio URL for '{res.get('title')}' using '{client}' client")
+                print(f"[yt-dlp] Success for '{res.get('title')}' (cookies={use_cookies}, client={client_name})")
                 return res
         except Exception as e:
-            print(f"[yt-dlp] Client '{client}' failed for {video_id}: {e}")
+            pass
 
     return None
 
