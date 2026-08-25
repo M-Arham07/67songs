@@ -17,11 +17,7 @@ _cache_timestamps: dict[str, float] = {}
 
 
 def _get_cookie_file_path() -> str | None:
-    """Finds or creates a cookie file for yt-dlp authentication.
-    Supports:
-    1. YOUTUBE_COOKIES environment variable (raw Netscape text or base64)
-    2. Local files: ytcookies.txt, cookies.txt in workspace or /app
-    """
+    """Finds or creates a cookie file for yt-dlp authentication."""
     # 1. Check environment variable
     raw_cookies = os.environ.get("YOUTUBE_COOKIES", "").strip()
     if raw_cookies:
@@ -63,8 +59,14 @@ def _get_cookie_file_path() -> str | None:
     return None
 
 
-def _get_ydl_options() -> dict:
-    """Builds yt-dlp options with authenticated cookies if available."""
+def _is_cache_valid(video_id: str) -> bool:
+    import time
+    ts = _cache_timestamps.get(video_id, 0)
+    return (time.time() * 1000 - ts) < _cache_ttl_ms
+
+
+def _extract_with_client(url: str, client_name: str, cookie_path: str | None) -> dict | None:
+    """Attempts extraction with a specific player client."""
     opts = {
         "format": "bestaudio/best",
         "quiet": True,
@@ -72,28 +74,47 @@ def _get_ydl_options() -> dict:
         "noplaylist": True,
         "extract_flat": False,
         "skip_download": True,
-        "socket_timeout": 15,
+        "socket_timeout": 12,
         "extractor_args": {
             "youtube": {
-                "player_client": ["mweb", "tv", "web"]
+                "player_client": [client_name]
             }
         }
     }
-
-    cookie_path = _get_cookie_file_path()
     if cookie_path:
         opts["cookiefile"] = cookie_path
-        print(f"[yt-dlp] Loaded authenticated cookies from: {cookie_path}")
-    else:
-        print("[yt-dlp] Warning: No cookies found. Extraction may be blocked on cloud IPs.")
 
-    return opts
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        if not info:
+            return None
 
+        raw_url = None
+        if "url" in info and info["url"]:
+            raw_url = info["url"]
+        else:
+            formats = info.get("formats", [])
+            audio_formats = [
+                f for f in formats
+                if f.get("acodec") != "none"
+                and f.get("url")
+            ]
+            if audio_formats:
+                raw_url = audio_formats[-1]["url"]
+            elif formats:
+                for f in reversed(formats):
+                    if f.get("url"):
+                        raw_url = f["url"]
+                        break
 
-def _is_cache_valid(video_id: str) -> bool:
-    import time
-    ts = _cache_timestamps.get(video_id, 0)
-    return (time.time() * 1000 - ts) < _cache_ttl_ms
+        if raw_url:
+            return {
+                "audioUrl": raw_url,
+                "duration": info.get("duration", 0),
+                "title": info.get("title"),
+                "ext": info.get("ext", "m4a"),
+            }
+    return None
 
 
 def _extract_audio_url_sync(video_id: str) -> dict | None:
@@ -101,48 +122,22 @@ def _extract_audio_url_sync(video_id: str) -> dict | None:
         return _audio_url_cache[video_id]
 
     url = f"https://www.youtube.com/watch?v={video_id}"
-    ydl_opts = _get_ydl_options()
+    cookie_path = _get_cookie_file_path()
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    # Try mweb client first, then web client (do NOT use tv client as it triggers 'reload page' errors with cookies)
+    for client in ["mweb", "web"]:
         try:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                return None
-
-            raw_url = None
-            if "url" in info and info["url"]:
-                raw_url = info["url"]
-            else:
-                formats = info.get("formats", [])
-                audio_formats = [
-                    f for f in formats
-                    if f.get("acodec") != "none"
-                    and f.get("url")
-                ]
-                if audio_formats:
-                    raw_url = audio_formats[-1]["url"]
-                elif formats:
-                    for f in reversed(formats):
-                        if f.get("url"):
-                            raw_url = f["url"]
-                            break
-
-            if raw_url:
+            res = _extract_with_client(url, client, cookie_path)
+            if res and res.get("audioUrl"):
                 import time
-                res = {
-                    "audioUrl": raw_url,
-                    "duration": info.get("duration", 0),
-                    "title": info.get("title"),
-                    "ext": info.get("ext", "m4a"),
-                }
                 _audio_url_cache[video_id] = res
                 _cache_timestamps[video_id] = time.time() * 1000
-                print(f"[yt-dlp] Successfully extracted audio URL for '{info.get('title')}' ({video_id})")
+                print(f"[yt-dlp] Extracted audio URL for '{res.get('title')}' using '{client}' client")
                 return res
-            return None
         except Exception as e:
-            print(f"[yt-dlp] Extraction error for {video_id}: {e}")
-            return None
+            print(f"[yt-dlp] Client '{client}' failed for {video_id}: {e}")
+
+    return None
 
 
 @router.get("/stream/{video_id}")
@@ -153,7 +148,7 @@ async def proxy_audio_stream(video_id: str, request: Request):
     if not result or not result.get("audioUrl"):
         raise HTTPException(
             status_code=404,
-            detail="Audio stream extraction failed. Please verify YouTube cookies."
+            detail="Audio stream extraction failed."
         )
 
     target_url = result["audioUrl"]
