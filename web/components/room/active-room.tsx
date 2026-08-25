@@ -98,64 +98,50 @@ export function ActiveRoom({
       ) : (
         /* Main Active Listening Layout */
         <div className="flex-1 flex flex-col lg:flex-row p-4 gap-4 max-w-7xl mx-auto w-full">
-          {/* Left Column: Player & Active Track Info */}
-          <div className="flex-1 flex flex-col space-y-4 min-w-0">
-            {/* Official Embedded YouTube Player Frame */}
-            <div className="w-full">
+           {/* Left Column: Player & Controls */}
+           <div className="flex-1 flex flex-col space-y-3 min-w-0">
+              {/* Direct Audio Stream Player */}
               <YouTubePlayer
                 ref={playerRef as any}
                 videoId={currentTrack.videoId}
                 onTrackEnded={handleTrackEnded}
               />
-            </div>
 
-            {/* Current Track Metadata Bar */}
-            <div className="flex items-center justify-between p-3 rounded-lg border border-[#262626] bg-[#111111]">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex flex-col min-w-0">
-                  <h2 className="text-sm font-bold text-[#fafafa] truncate">
-                    {currentTrack.title}
-                  </h2>
-                  <p className="text-xs text-[#a1a1a1] truncate">
-                    {currentTrack.artist}
-                    {currentTrack.album && ` • ${currentTrack.album}`}
-                  </p>
+              {/* Controls Bar */}
+              <div className="flex items-center justify-between p-2.5 rounded-lg border border-[#262626] bg-[#111111]">
+                <PlayerSyncStatus />
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsAdjusterOpen(true)}
+                    className="h-8 text-xs gap-1.5"
+                    title="Adjust sound volume and sync offset"
+                  >
+                    <Sliders className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Audio Adjuster</span>
+                  </Button>
+
+                  {isMaster && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setIsSearchOpen(true)}
+                      className="h-8 text-xs gap-1.5"
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                      <span>Change Song</span>
+                    </Button>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <PlayerSyncStatus />
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsAdjusterOpen(true)}
-                  className="h-8 text-xs gap-1.5"
-                  title="Adjust sound volume and sync offset"
-                >
-                  <Sliders className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Audio Adjuster</span>
-                </Button>
-
-                {isMaster && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setIsSearchOpen(true)}
-                    className="h-8 text-xs gap-1.5"
-                  >
-                    <Search className="h-3.5 w-3.5" />
-                    <span>Change Song</span>
-                  </Button>
-                )}
+              {/* Floating Reactions Bar */}
+              <div className="flex justify-end pt-1">
+                <ReactionBar onSendReaction={onSendReaction} />
               </div>
             </div>
-
-            {/* Floating Reactions Bar */}
-            <div className="flex justify-end pt-1">
-              <ReactionBar onSendReaction={onSendReaction} />
-            </div>
-          </div>
 
           {/* Right Column: Contextual Sidebar (Queue / Participants / Chat) */}
           <div className="w-full lg:w-80 xl:w-96 flex flex-col h-[600px] lg:h-auto min-h-[450px]">

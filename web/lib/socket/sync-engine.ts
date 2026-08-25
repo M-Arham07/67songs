@@ -17,12 +17,12 @@ export interface SyncEngineOptions {
   onDriftUpdate?: (driftMs: number) => void;
 }
 
-// Precision Sync Boundaries
-const PERFECT_SYNC_THRESHOLD_SECONDS = 0.035; // ±35ms (imperceptible audio lockstep)
-const MICRO_PITCH_MAX_DRIFT_SECONDS = 1.2; // Use continuous rate micro-adjustments up to 1.2s
-const HARD_SEEK_DRIFT_SECONDS = 1.2; // Hard seek only if drift exceeds 1.2s
-const DRIFT_CHECK_INTERVAL_MS = 500; // Evaluate 2 times per second (500ms)
-const HARD_SEEK_COOLDOWN_MS = 4000; // 4s cooldown between hard seeks
+// Precision Sync Boundaries (tuned for native HTML5 <audio> with sub-ms timing)
+const PERFECT_SYNC_THRESHOLD_SECONDS = 0.025; // ±25ms (imperceptible audio lockstep)
+const MICRO_PITCH_MAX_DRIFT_SECONDS = 0.8; // Use continuous rate micro-adjustments up to 800ms
+const HARD_SEEK_DRIFT_SECONDS = 0.8; // Hard seek only if drift exceeds 800ms
+const DRIFT_CHECK_INTERVAL_MS = 250; // Evaluate 4 times per second (250ms)
+const HARD_SEEK_COOLDOWN_MS = 3000; // 3s cooldown between hard seeks
 
 export class SyncEngine {
   private playerRef: React.RefObject<YouTubePlayerRef | null> | null = null;
@@ -165,7 +165,7 @@ export class SyncEngine {
 
     const now = Date.now();
     // Warm-up grace period after start/seek
-    if (now - this.playbackStartedAtMs < 2000) {
+    if (now - this.playbackStartedAtMs < 1500) {
       return;
     }
 

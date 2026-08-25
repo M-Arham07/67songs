@@ -11,7 +11,7 @@ import {
   type SeekAtPayload,
 } from "../types/index.js";
 
-const SCHEDULE_LEAD_TIME_MS = 1200; // 1.2s future scheduling for ultra-low latency start
+const SCHEDULE_LEAD_TIME_MS = 800; // 800ms — fast lead time for direct audio streams
 
 export function registerPlaybackHandlers(io: Server, socket: AuthenticatedSocket) {
   const { userId, roomId } = socket.data;

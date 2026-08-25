@@ -16,7 +16,7 @@ export function getSocket(
 
   socketInstance = io(serverUrl, {
     auth: { token },
-    transports: ["websocket", "polling"],
+    transports: ["websocket"],
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 1000,
