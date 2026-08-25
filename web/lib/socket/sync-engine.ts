@@ -3,13 +3,25 @@ import type { YouTubePlayerRef } from "@/components/player/youtube-player";
 import type { PlayAtPayload, SeekAtPayload, PlaybackState } from "@/lib/types/playback";
 
 export interface SyncEngineOptions {
-  onSyncStatusChange?: (status: "idle" | "loading" | "ready" | "syncing" | "in_sync" | "buffering" | "autoplay_blocked" | "unavailable") => void;
+  onSyncStatusChange?: (
+    status:
+      | "idle"
+      | "loading"
+      | "ready"
+      | "syncing"
+      | "in_sync"
+      | "buffering"
+      | "autoplay_blocked"
+      | "unavailable"
+  ) => void;
   onDriftUpdate?: (driftMs: number) => void;
 }
 
-// Strict Maximum Allowed Drift Constraint (100ms)
-const MAX_ALLOWED_DRIFT_SECONDS = 0.100; // 100ms
-const DRIFT_CHECK_INTERVAL_MS = 250; // Check 4 times per second (250ms)
+// Tolerance boundaries
+const IN_SYNC_THRESHOLD_SECONDS = 0.35; // 350ms (natural IFrame timer resolution)
+const HARD_SEEK_DRIFT_SECONDS = 1.5; // Only seek if drift exceeds 1.5s
+const DRIFT_CHECK_INTERVAL_MS = 1000; // Check once per second
+const SEEK_COOLDOWN_MS = 5000; // Do not seek more than once per 5 seconds
 
 export class SyncEngine {
   private playerRef: React.RefObject<YouTubePlayerRef | null> | null = null;
@@ -18,6 +30,7 @@ export class SyncEngine {
   private currentPlayback: PlaybackState | null = null;
   private options: SyncEngineOptions;
   private lastCorrectionAtMs: number = 0;
+  private playbackStartedAtMs: number = 0;
 
   constructor(options: SyncEngineOptions = {}) {
     this.options = options;
@@ -50,26 +63,28 @@ export class SyncEngine {
     };
 
     console.log(
-      `[SyncEngine] Received play_at for "${payload.track.title}" (scheduled start in ${msUntilStart}ms at ${payload.positionSeconds}s)`
+      `[SyncEngine] Received play_at for "${payload.track.title}" (start in ${msUntilStart}ms at ${payload.positionSeconds}s)`
     );
 
     if (msUntilStart > 0) {
-      // Cue track and seek to start position in advance
+      // Cue track and seek in advance
       player.cueVideo(payload.track.videoId, payload.positionSeconds);
       this.options.onSyncStatusChange?.("syncing");
 
       this.scheduledTimer = setTimeout(() => {
         player.play();
+        this.playbackStartedAtMs = Date.now();
         this.options.onSyncStatusChange?.("in_sync");
         this.startDriftMonitoring();
       }, msUntilStart);
     } else {
-      // Late joiner: compute current exact canonical position and start
+      // Late joiner: compute canonical position and play
       const lateSeconds = Math.abs(msUntilStart) / 1000;
       const expectedPosition = payload.positionSeconds + lateSeconds;
 
       player.loadVideo(payload.track.videoId, expectedPosition);
       player.play();
+      this.playbackStartedAtMs = Date.now();
       this.options.onSyncStatusChange?.("in_sync");
       this.startDriftMonitoring();
     }
@@ -94,6 +109,8 @@ export class SyncEngine {
     const player = this.playerRef?.current;
     if (!player) return;
 
+    this.lastCorrectionAtMs = Date.now();
+
     if (payload.startAtServerMs) {
       const serverNow = clockSynchronizer.getEstimatedServerNow();
       const msUntilStart = payload.startAtServerMs - serverNow;
@@ -103,6 +120,7 @@ export class SyncEngine {
         if (this.scheduledTimer) clearTimeout(this.scheduledTimer);
         this.scheduledTimer = setTimeout(() => {
           player.play();
+          this.playbackStartedAtMs = Date.now();
           this.options.onSyncStatusChange?.("in_sync");
         }, msUntilStart);
         return;
@@ -115,7 +133,6 @@ export class SyncEngine {
   public startDriftMonitoring() {
     this.stopDriftMonitoring();
 
-    // High-frequency drift evaluation loop (every 250ms)
     this.driftCheckInterval = setInterval(() => {
       this.checkDrift();
     }, DRIFT_CHECK_INTERVAL_MS);
@@ -134,6 +151,18 @@ export class SyncEngine {
       return;
     }
 
+    // Only evaluate drift if player is actively PLAYING (state 1). If buffering (state 3), wait.
+    const playerState = player.getPlayerState();
+    if (playerState !== 1) {
+      return;
+    }
+
+    const now = Date.now();
+    // Allow a 3-second buffer warm-up grace period after start/seek
+    if (now - this.playbackStartedAtMs < 3000) {
+      return;
+    }
+
     const currentActualTime = player.getCurrentTime();
     const serverNow = clockSynchronizer.getEstimatedServerNow();
 
@@ -148,19 +177,15 @@ export class SyncEngine {
 
     this.options.onDriftUpdate?.(driftMs);
 
-    const now = Date.now();
-    // Throttle hard seeks to at most once every 1000ms to avoid audio stutter
-    const canCorrect = now - this.lastCorrectionAtMs > 1000;
+    // Throttle hard seeks to at most once per 5 seconds
+    const canCorrect = now - this.lastCorrectionAtMs > SEEK_COOLDOWN_MS;
 
-    // Strict 100ms Enforcement Rule:
-    if (absDrift <= MAX_ALLOWED_DRIFT_SECONDS) {
-      // Within strict 100ms threshold
+    if (absDrift <= IN_SYNC_THRESHOLD_SECONDS) {
       this.options.onSyncStatusChange?.("in_sync");
-    } else if (absDrift > MAX_ALLOWED_DRIFT_SECONDS && canCorrect) {
-      // Exceeds 100ms drift boundary: enforce immediate micro-correction
+    } else if (absDrift > HARD_SEEK_DRIFT_SECONDS && canCorrect) {
       this.lastCorrectionAtMs = now;
       console.log(
-        `[SyncEngine:Enforce100ms] Drift ${driftMs}ms exceeded threshold (±100ms). Re-aligning to ${expectedCanonicalPosition.toFixed(3)}s`
+        `[SyncEngine] Drift ${driftMs}ms exceeded threshold (>1.5s). Re-aligning to ${expectedCanonicalPosition.toFixed(2)}s`
       );
       player.seekTo(expectedCanonicalPosition);
       this.options.onSyncStatusChange?.("syncing");
