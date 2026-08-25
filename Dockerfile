@@ -2,10 +2,10 @@
 FROM node:22-bookworm-slim AS node-builder
 
 # Install pnpm 9
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN npm install -g pnpm@9.15.4
 
 WORKDIR /build/realtime
-COPY backend/realtime/package.json backend/realtime/pnpm-lock.yaml* ./
+COPY backend/realtime/package.json backend/realtime/pnpm-lock.yaml* backend/realtime/pnpm-workspace.yaml* ./
 RUN pnpm install --frozen-lockfile
 
 COPY backend/realtime/ ./
