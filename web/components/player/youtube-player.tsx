@@ -3,15 +3,14 @@
 import * as React from "react";
 import {
   Play,
-  Pause,
   Volume2,
-  VolumeX,
   AlertTriangle,
   Loader2,
   Radio,
   Sparkles,
   Music2,
   Disc3,
+  Tv,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +18,13 @@ import { usePlayerStore } from "@/lib/stores/player-store";
 import { useRoomStore } from "@/lib/stores/room-store";
 import { cn } from "@/lib/utils/cn";
 
-// Keep the same ref interface so sync-engine, hooks, and room logic don't change
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+
 export interface YouTubePlayerRef {
   play: () => void;
   pause: () => void;
@@ -43,25 +48,26 @@ interface YouTubePlayerProps {
   onTrackEnded?: () => void;
 }
 
-// Audio frequency visualizer bar count
 const VISUALIZER_BAR_COUNT = 48;
 
 export const YouTubePlayer = React.forwardRef<
   YouTubePlayerRef,
   YouTubePlayerProps
 >(({ videoId, className, onReady, onStateChange, onError, onTrackEnded }, ref) => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const iframePlayerRef = React.useRef<any>(null);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const audioContextRef = React.useRef<AudioContext | null>(null);
   const analyserRef = React.useRef<AnalyserNode | null>(null);
-  const sourceNodeRef = React.useRef<MediaElementAudioSourceNode | null>(null);
   const animFrameRef = React.useRef<number>(0);
   const currentVideoIdRef = React.useRef<string | null>(null);
   const isCuedRef = React.useRef(false);
 
+  // Modes: "direct_audio" (primary) or "iframe_fallback" (if datacenter IP blocked)
+  const [playerMode, setPlayerMode] = React.useState<"direct_audio" | "iframe_fallback">("direct_audio");
+  const [isIframeApiLoaded, setIsIframeApiLoaded] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
-  const [hasError, setHasError] = React.useState(false);
-  const [errorDetail, setErrorDetail] = React.useState<string>("");
 
   const {
     isAutoplayBlocked,
@@ -77,14 +83,27 @@ export const YouTubePlayer = React.forwardRef<
 
   const currentTrack = useRoomStore((s) => s.currentTrack);
 
-  // Build the stream URL for a given videoId
-  const getStreamUrl = (vid: string) =>
-    `/api/music/audio/${encodeURIComponent(vid)}`;
+  // Load YouTube IFrame API as backup
+  React.useEffect(() => {
+    if (window.YT && window.YT.Player) {
+      setIsIframeApiLoaded(true);
+      return;
+    }
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName("script")[0];
+    firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
 
-  // Initialize Web Audio API analyser for visualization
+    const prevReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (prevReady) prevReady();
+      setIsIframeApiLoaded(true);
+    };
+  }, []);
+
+  // Web Audio Visualizer Setup
   const initAudioContext = React.useCallback(() => {
     if (audioContextRef.current || !audioRef.current) return;
-
     try {
       const ctx = new AudioContext();
       const analyser = ctx.createAnalyser();
@@ -97,14 +116,11 @@ export const YouTubePlayer = React.forwardRef<
 
       audioContextRef.current = ctx;
       analyserRef.current = analyser;
-      sourceNodeRef.current = source;
     } catch (e) {
-      // Web Audio not supported or already connected — fine, visualizer just won't render
-      console.warn("[AudioPlayer] Web Audio init:", e);
+      console.warn("[AudioPlayer] Visualizer note:", e);
     }
   }, []);
 
-  // Canvas visualizer draw loop
   const drawVisualizer = React.useCallback(() => {
     const canvas = canvasRef.current;
     const analyser = analyserRef.current;
@@ -132,7 +148,6 @@ export const YouTubePlayer = React.forwardRef<
         const x = i * barWidth;
         const y = height - barHeight;
 
-        // Gradient from green to teal
         const hue = 140 + (i / VISUALIZER_BAR_COUNT) * 40;
         const alpha = 0.4 + (value / 255) * 0.6;
         ctx.fillStyle = `hsla(${hue}, 70%, 50%, ${alpha})`;
@@ -154,19 +169,104 @@ export const YouTubePlayer = React.forwardRef<
     }
   }, []);
 
-  // Load audio stream for a videoId
+  // Switch to YouTube IFrame fallback on stream error
+  const fallbackToIframe = React.useCallback(
+    (vid: string) => {
+      console.warn("[Player] Switching to YouTube IFrame player fallback for video:", vid);
+      setPlayerMode("iframe_fallback");
+      stopVisualizer();
+
+      if (iframePlayerRef.current) {
+        try {
+          iframePlayerRef.current.loadVideoById(vid);
+        } catch {}
+      }
+    },
+    [stopVisualizer]
+  );
+
+  // Initialize IFrame Player when needed
+  React.useEffect(() => {
+    if (playerMode !== "iframe_fallback" || !isIframeApiLoaded || !containerRef.current || iframePlayerRef.current) {
+      return;
+    }
+
+    const playerId = "yt-player-fallback-frame";
+    let el = document.getElementById(playerId);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = playerId;
+      containerRef.current.appendChild(el);
+    }
+
+    try {
+      const player = new window.YT.Player(playerId, {
+        height: "100%",
+        width: "100%",
+        videoId: videoId || "",
+        playerVars: {
+          autoplay: 1,
+          controls: 1,
+          enablejsapi: 1,
+          playsinline: 1,
+          rel: 0,
+        },
+        events: {
+          onReady: (event: any) => {
+            iframePlayerRef.current = event.target;
+            try {
+              iframePlayerRef.current.setVolume(isMuted ? 0 : volume);
+            } catch {}
+            setIsReady(true);
+            onReady?.();
+          },
+          onStateChange: (event: any) => {
+            const stateCode = event.data;
+            if (stateCode === 1) {
+              setPlayerState("playing");
+              setIsAutoplayBlocked(false);
+            } else if (stateCode === 2) {
+              setPlayerState("paused");
+            } else if (stateCode === 3) {
+              setPlayerState("buffering");
+            } else if (stateCode === 0) {
+              setPlayerState("ended");
+              onTrackEnded?.();
+            } else if (stateCode === 5) {
+              setPlayerState("cued");
+            }
+            onStateChange?.(stateCode);
+          },
+          onError: (err: any) => {
+            console.error("[YouTubePlayer] Iframe error:", err);
+            onError?.(err);
+          },
+        },
+      });
+    } catch (e) {
+      console.warn("[YouTubePlayer] Iframe init error:", e);
+    }
+  }, [playerMode, isIframeApiLoaded, videoId, onReady, onStateChange, onError, onTrackEnded, setIsReady, setPlayerState, setIsAutoplayBlocked, volume, isMuted]);
+
+  // Load Direct Audio Stream
   const loadAudio = React.useCallback(
     (vid: string, startSeconds: number = 0, autoPlay: boolean = false) => {
-      if (!audioRef.current || !vid) return;
-
+      if (!vid) return;
       currentVideoIdRef.current = vid;
       isCuedRef.current = !autoPlay;
-      setHasError(false);
-      setErrorDetail("");
+
+      if (playerMode === "iframe_fallback") {
+        if (iframePlayerRef.current && typeof iframePlayerRef.current.loadVideoById === "function") {
+          iframePlayerRef.current.loadVideoById(vid, startSeconds);
+        }
+        return;
+      }
+
+      if (!audioRef.current) return;
       setIsLoading(true);
 
       const audio = audioRef.current;
-      audio.src = getStreamUrl(vid);
+      audio.src = `/api/music/audio/${encodeURIComponent(vid)}`;
       audio.currentTime = startSeconds;
       audio.preload = "auto";
       audio.load();
@@ -183,21 +283,21 @@ export const YouTubePlayer = React.forwardRef<
           });
       }
     },
-    [initAudioContext, drawVisualizer, setIsAutoplayBlocked]
+    [playerMode, initAudioContext, drawVisualizer, setIsAutoplayBlocked]
   );
 
-  // Apply volume changes
-  React.useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume / 100));
-    }
-  }, [volume, isMuted]);
-
-  // Forward the ref interface (same contract as the old YouTube player)
+  // Forward ref methods
   React.useImperativeHandle(
     ref,
     () => ({
       play: () => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            iframePlayerRef.current.playVideo();
+          } catch {}
+          return;
+        }
+
         if (!audioRef.current) return;
         initAudioContext();
         audioRef.current
@@ -211,29 +311,62 @@ export const YouTubePlayer = React.forwardRef<
           });
       },
       pause: () => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            iframePlayerRef.current.pauseVideo();
+          } catch {}
+          return;
+        }
         audioRef.current?.pause();
         stopVisualizer();
       },
       seekTo: (seconds: number) => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            iframePlayerRef.current.seekTo(seconds, true);
+          } catch {}
+          return;
+        }
         if (audioRef.current) {
           audioRef.current.currentTime = seconds;
         }
       },
       getCurrentTime: () => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            return iframePlayerRef.current.getCurrentTime() || 0;
+          } catch {
+            return 0;
+          }
+        }
         return audioRef.current?.currentTime || 0;
       },
       getDuration: () => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            return iframePlayerRef.current.getDuration() || 0;
+          } catch {
+            return 0;
+          }
+        }
         return audioRef.current?.duration || 0;
       },
       getPlayerState: () => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            return iframePlayerRef.current.getPlayerState() || -1;
+          } catch {
+            return -1;
+          }
+        }
         const audio = audioRef.current;
         if (!audio) return -1;
-        if (audio.ended) return 0; // ended
-        if (isCuedRef.current) return 5; // cued
-        if (audio.readyState < 3 && !audio.paused) return 3; // buffering
-        if (audio.paused) return 2; // paused
-        if (!audio.paused && audio.readyState >= 3) return 1; // playing
-        return -1; // unstarted
+        if (audio.ended) return 0;
+        if (isCuedRef.current) return 5;
+        if (audio.readyState < 3 && !audio.paused) return 3;
+        if (audio.paused) return 2;
+        if (!audio.paused && audio.readyState >= 3) return 1;
+        return -1;
       },
       loadVideo: (vid: string, startSeconds: number = 0) => {
         loadAudio(vid, startSeconds, true);
@@ -242,50 +375,58 @@ export const YouTubePlayer = React.forwardRef<
         loadAudio(vid, startSeconds, false);
       },
       setVolume: (vol: number) => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            iframePlayerRef.current.setVolume(vol);
+          } catch {}
+          return;
+        }
         if (audioRef.current) {
           audioRef.current.volume = Math.max(0, Math.min(1, vol / 100));
         }
       },
       setPlaybackRate: (rate: number) => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            iframePlayerRef.current.setPlaybackRate(rate);
+          } catch {}
+          return;
+        }
         if (audioRef.current) {
           audioRef.current.playbackRate = rate;
         }
       },
       getPlaybackRate: () => {
+        if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+          try {
+            return iframePlayerRef.current.getPlaybackRate() || 1;
+          } catch {
+            return 1;
+          }
+        }
         return audioRef.current?.playbackRate || 1;
       },
     }),
-    [initAudioContext, drawVisualizer, stopVisualizer, loadAudio, setIsAutoplayBlocked]
+    [playerMode, initAudioContext, drawVisualizer, stopVisualizer, loadAudio, setIsAutoplayBlocked]
   );
 
-  // Signal ready once audio element mounts
+  // Set initial readiness
   React.useEffect(() => {
-    if (audioRef.current) {
-      setIsReady(true);
-      onReady?.();
-    }
+    setIsReady(true);
+    onReady?.();
   }, [setIsReady, onReady]);
 
-  // Handle initial videoId on mount
   React.useEffect(() => {
     if (videoId && videoId !== currentVideoIdRef.current) {
       loadAudio(videoId, 0, false);
     }
   }, [videoId, loadAudio]);
 
-  // Cleanup
-  React.useEffect(() => {
-    return () => {
-      stopVisualizer();
-      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-        audioContextRef.current.close().catch(() => {});
-      }
-    };
-  }, [stopVisualizer]);
-
   const handleStartAudioGesture = () => {
     setIsAutoplayBlocked(false);
-    if (audioRef.current) {
+    if (playerMode === "iframe_fallback" && iframePlayerRef.current) {
+      iframePlayerRef.current.playVideo();
+    } else if (audioRef.current) {
       initAudioContext();
       audioRef.current
         .play()
@@ -294,7 +435,6 @@ export const YouTubePlayer = React.forwardRef<
     }
   };
 
-  // Format time as mm:ss
   const formatTime = (s: number) => {
     if (!s || !isFinite(s)) return "0:00";
     const m = Math.floor(s / 60);
@@ -314,104 +454,112 @@ export const YouTubePlayer = React.forwardRef<
         className
       )}
     >
-      {/* Main Player Layout */}
-      <div className="flex flex-col sm:flex-row items-center gap-5 p-5 sm:p-6">
-        {/* Album Art */}
-        <div className="relative shrink-0 group">
-          <div
-            className={cn(
-              "w-36 h-36 sm:w-44 sm:h-44 rounded-lg overflow-hidden border border-[#262626] shadow-xl",
-              "bg-gradient-to-br from-[#1a1a1a] to-[#0d0d0d]",
-              playerState === "playing" && "shadow-[#1db954]/10 shadow-2xl"
-            )}
-          >
-            {thumbnailUrl ? (
-              <img
-                src={thumbnailUrl}
-                alt={currentTrack?.title || "Album art"}
-                className={cn(
-                  "w-full h-full object-cover transition-transform duration-700",
-                  playerState === "playing" && "scale-105"
-                )}
-                draggable={false}
-              />
-            ) : (
-              <div className="flex items-center justify-center w-full h-full">
-                <Disc3
-                  className={cn(
-                    "h-16 w-16 text-[#333333]",
-                    playerState === "playing" && "animate-spin text-[#1db954]/40"
-                  )}
-                  style={{ animationDuration: "3s" }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Playing indicator glow ring */}
-          {playerState === "playing" && (
-            <div className="absolute -inset-1 rounded-xl border border-[#1db954]/20 animate-pulse pointer-events-none" />
-          )}
-        </div>
-
-        {/* Track Info + Visualizer */}
-        <div className="flex-1 flex flex-col min-w-0 w-full gap-3">
-          {/* Track Metadata */}
-          <div className="space-y-1 text-center sm:text-left">
-            <div className="flex items-center justify-center sm:justify-start gap-2">
-              <Badge
-                variant="accent"
-                className="text-[9px] gap-1 px-1.5 py-0.5 font-medium"
-              >
-                <Sparkles className="h-2.5 w-2.5" />
-                Direct Audio Stream
-              </Badge>
-            </div>
-            <h2 className="text-base sm:text-lg font-bold text-[#fafafa] truncate leading-tight">
-              {currentTrack?.title || "No Track Selected"}
-            </h2>
-            <p className="text-xs sm:text-sm text-[#a1a1a1] truncate">
-              {currentTrack?.artist || "—"}
-              {currentTrack?.album && (
-                <span className="text-[#666666]"> · {currentTrack.album}</span>
+      {/* 1. Direct Audio Mode Interface with Waveform & Album Art */}
+      {playerMode === "direct_audio" && (
+        <div className="flex flex-col sm:flex-row items-center gap-5 p-5 sm:p-6">
+          {/* Album Art */}
+          <div className="relative shrink-0 group">
+            <div
+              className={cn(
+                "w-36 h-36 sm:w-44 sm:h-44 rounded-lg overflow-hidden border border-[#262626] shadow-xl",
+                "bg-gradient-to-br from-[#1a1a1a] to-[#0d0d0d]",
+                playerState === "playing" && "shadow-[#1db954]/10 shadow-2xl"
               )}
-            </p>
-          </div>
+            >
+              {thumbnailUrl ? (
+                <img
+                  src={thumbnailUrl}
+                  alt={currentTrack?.title || "Album art"}
+                  className={cn(
+                    "w-full h-full object-cover transition-transform duration-700",
+                    playerState === "playing" && "scale-105"
+                  )}
+                  draggable={false}
+                />
+              ) : (
+                <div className="flex items-center justify-center w-full h-full">
+                  <Disc3
+                    className={cn(
+                      "h-16 w-16 text-[#333333]",
+                      playerState === "playing" && "animate-spin text-[#1db954]/40"
+                    )}
+                    style={{ animationDuration: "3s" }}
+                  />
+                </div>
+              )}
+            </div>
 
-          {/* Audio Frequency Visualizer Canvas */}
-          <div className="relative w-full h-16 sm:h-20 rounded-lg overflow-hidden bg-[#0a0a0a]/60 border border-[#1a1a1a]">
-            <canvas
-              ref={canvasRef}
-              width={600}
-              height={80}
-              className="w-full h-full"
-            />
-            {/* Idle state overlay */}
-            {playerState !== "playing" && (
-              <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0a]/40">
-                {isLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-[#1db954]/60" />
-                ) : (
-                  <div className="flex items-center gap-1.5 text-[#444444]">
-                    <Music2 className="h-4 w-4" />
-                    <span className="text-[10px] font-medium uppercase tracking-wider">
-                      {playerState === "paused" ? "Paused" : "Awaiting Playback"}
-                    </span>
-                  </div>
-                )}
-              </div>
+            {playerState === "playing" && (
+              <div className="absolute -inset-1 rounded-xl border border-[#1db954]/20 animate-pulse pointer-events-none" />
             )}
           </div>
 
-          {/* Time Display */}
-          <div className="flex items-center justify-between text-[10px] text-[#666666] tabular-nums font-mono px-0.5">
-            <span>{formatTime(usePlayerStore.getState().currentTime)}</span>
-            <span>{formatTime(usePlayerStore.getState().duration)}</span>
+          {/* Track Metadata & Visualizer */}
+          <div className="flex-1 flex flex-col min-w-0 w-full gap-3">
+            <div className="space-y-1 text-center sm:text-left">
+              <div className="flex items-center justify-center sm:justify-start gap-2">
+                <Badge
+                  variant="accent"
+                  className="text-[9px] gap-1 px-1.5 py-0.5 font-medium"
+                >
+                  <Sparkles className="h-2.5 w-2.5" />
+                  Direct Audio Stream
+                </Badge>
+              </div>
+              <h2 className="text-base sm:text-lg font-bold text-[#fafafa] truncate leading-tight">
+                {currentTrack?.title || "No Track Selected"}
+              </h2>
+              <p className="text-xs sm:text-sm text-[#a1a1a1] truncate">
+                {currentTrack?.artist || "—"}
+                {currentTrack?.album && (
+                  <span className="text-[#666666]"> · {currentTrack.album}</span>
+                )}
+              </p>
+            </div>
+
+            {/* Audio Frequency Visualizer */}
+            <div className="relative w-full h-16 sm:h-20 rounded-lg overflow-hidden bg-[#0a0a0a]/60 border border-[#1a1a1a]">
+              <canvas
+                ref={canvasRef}
+                width={600}
+                height={80}
+                className="w-full h-full"
+              />
+              {playerState !== "playing" && (
+                <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0a]/40">
+                  {isLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-[#1db954]/60" />
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[#444444]">
+                      <Music2 className="h-4 w-4" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider">
+                        {playerState === "paused" ? "Paused" : "Awaiting Playback"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Time Display */}
+            <div className="flex items-center justify-between text-[10px] text-[#666666] tabular-nums font-mono px-0.5">
+              <span>{formatTime(usePlayerStore.getState().currentTime)}</span>
+              <span>{formatTime(usePlayerStore.getState().duration)}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Hidden <audio> element — the real engine */}
+      {/* 2. Embedded Video Fallback Container (activated if direct stream is bot-blocked) */}
+      <div
+        ref={containerRef}
+        className={cn(
+          "w-full aspect-video",
+          playerMode !== "iframe_fallback" && "hidden"
+        )}
+      />
+
+      {/* HTML5 Audio Element for Direct Stream */}
       <audio
         ref={audioRef}
         preload="auto"
@@ -453,40 +601,13 @@ export const YouTubePlayer = React.forwardRef<
             setCurrentTime(audioRef.current.currentTime);
           }
         }}
-        onError={(e) => {
-          console.error("[AudioPlayer] Stream error:", e);
-          setHasError(true);
-          setErrorDetail("Audio stream unavailable. Retrying...");
-          setIsLoading(false);
-          onError?.(e);
+        onError={() => {
+          // Direct audio stream failed (e.g. YouTube bot detection on cloud IP) -> auto-fallback to YouTube IFrame!
+          if (videoId) {
+            fallbackToIframe(videoId);
+          }
         }}
       />
-
-      {/* Error Overlay */}
-      {hasError && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#0a0a0a]/95 backdrop-blur-sm p-6 text-center space-y-3">
-          <div className="h-12 w-12 rounded-full bg-[#e5484d]/10 border border-[#e5484d]/30 flex items-center justify-center text-[#e5484d]">
-            <AlertTriangle className="h-6 w-6" />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-bold text-[#fafafa]">Stream Error</h3>
-            <p className="text-xs text-[#a1a1a1] max-w-xs">{errorDetail}</p>
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              if (currentVideoIdRef.current) {
-                loadAudio(currentVideoIdRef.current, 0, true);
-              }
-            }}
-            className="gap-1.5"
-          >
-            <Radio className="h-3.5 w-3.5" />
-            Retry Stream
-          </Button>
-        </div>
-      )}
 
       {/* Autoplay Blocked Gesture Overlay */}
       {isAutoplayBlocked && (

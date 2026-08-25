@@ -10,13 +10,18 @@ router = APIRouter(prefix="/api", tags=["stream"])
 executor = ThreadPoolExecutor(max_workers=4)
 
 YDL_OPTS = {
-    "format": "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best",
+    "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
     "extract_flat": False,
     "skip_download": True,
-    "socket_timeout": 10,
+    "socket_timeout": 15,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "ios", "mweb", "web"]
+        }
+    }
 }
 
 _audio_url_cache = {}
@@ -34,15 +39,21 @@ def _extract_audio_url_sync(video_id: str):
                 return None
 
             raw_url = None
-            if "url" in info:
+            if "url" in info and info["url"]:
                 raw_url = info["url"]
             else:
                 formats = info.get("formats", [])
-                audio_formats = [f for f in formats if f.get("acodec") != "none" and f.get("vcodec") == "none"]
+                audio_formats = [
+                    f for f in formats 
+                    if f.get("acodec") != "none" and f.get("vcodec") == "none" and f.get("url")
+                ]
                 if audio_formats:
                     raw_url = audio_formats[-1]["url"]
                 elif formats:
-                    raw_url = formats[-1]["url"]
+                    for f in reversed(formats):
+                        if f.get("url"):
+                            raw_url = f["url"]
+                            break
 
             if raw_url:
                 res = {
@@ -64,10 +75,10 @@ async def proxy_audio_stream(video_id: str, request: Request):
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(executor, _extract_audio_url_sync, video_id)
     if not result or not result.get("audioUrl"):
-        raise HTTPException(status_code=404, detail="Audio stream not found")
+        raise HTTPException(status_code=404, detail="Audio stream extraction failed")
 
     target_url = result["audioUrl"]
-    client = httpx.AsyncClient(follow_redirects=True, timeout=20.0)
+    client = httpx.AsyncClient(follow_redirects=True, timeout=25.0)
 
     # Forward Range headers if present
     req_headers = {}
@@ -75,11 +86,21 @@ async def proxy_audio_stream(video_id: str, request: Request):
     if range_header:
         req_headers["range"] = range_header
 
-    req_headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    req_headers["User-Agent"] = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    )
 
     try:
         req = client.build_request("GET", target_url, headers=req_headers)
         r = await client.send(req, stream=True)
+
+        if r.status_code >= 400:
+            await r.aclose()
+            await client.aclose()
+            # Invalidate cache if expired/forbidden
+            _audio_url_cache.pop(video_id, None)
+            raise HTTPException(status_code=r.status_code, detail="Remote audio stream rejected")
 
         async def stream_generator():
             try:
@@ -103,6 +124,8 @@ async def proxy_audio_stream(video_id: str, request: Request):
             status_code=r.status_code,
             headers=resp_headers,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         await client.aclose()
         raise HTTPException(status_code=500, detail=str(e))
