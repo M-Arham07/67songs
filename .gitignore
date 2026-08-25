@@ -23,10 +23,13 @@ out/
 build/
 dist/
 
-# Env files
+# Env files & Secrets
 .env*.local
 .env
 !.env.example
+*cookie*.txt
+cookies.txt
+ytcookies.txt
 
 # IDE & OS
 .DS_Store
